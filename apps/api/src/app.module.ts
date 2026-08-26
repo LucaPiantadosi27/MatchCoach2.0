@@ -8,6 +8,7 @@ import { QueueModule } from './queue/queue.module';
 import { SchemesModule } from './schemes/schemes.module';
 import { TeamsModule } from './teams/teams.module';
 import { AnalysisModule } from './analysis/analysis.module';
+import { GenerationModule } from './generation/generation.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { AnalysisModule } from './analysis/analysis.module';
     SchemesModule,
     TeamsModule,
     AnalysisModule,
+    GenerationModule,
   ],
 })
 export class AppModule {}

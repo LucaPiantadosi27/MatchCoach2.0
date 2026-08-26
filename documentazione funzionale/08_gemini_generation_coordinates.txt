@@ -1,0 +1,189 @@
+MATCHCOACH-AI
+DOCUMENTAZIONE FUNZIONALE
+
+Macrostep: 08 - Gemini generation → coordinates
+
+STATO
+COMPLETATO
+
+1. OBIETTIVO
+
+Permettere all'utente di descrivere uno schema di gioco in linguaggio
+naturale e ottenere un `MovementRecording` valido generato da Gemini.
+Il flusso prevede: parsing dell'intento, chiamata a Gemini, conversione
+del `MovementPlan` in keyframe, validazione e fallback in caso di
+risposta errata o API non disponibile.
+
+2. FUNZIONALITÀ IMPLEMENTATE
+
+- DTO `GenerateSchemeDto` con `intent`, `durationMs` opzionale, `team` opzionale
+- `GeminiGenerationService` che costruisce prompt e chiama Gemini API
+- Parsing JSON della risposta e conversione in `MovementRecording`
+- Interpolazione tra waypoints per produrre keyframe intermedi
+- Fallback deterministico se API key mancante, richiesta fallita o JSON malformato
+- Endpoint `POST /api/schemes/generate` protetto da JWT
+- `GenerationModule` registrato in AppModule
+- Test unitari per fallback e shape del recording generato
+
+3. MODULI IMPLEMENTATI
+
+Modulo 8.1 — GenerationModule
+  - imports: ConfigModule
+  - controller: GenerationController
+  - provider: GeminiGenerationService
+  - esporta: GeminiGenerationService
+
+Modulo 8.2 — GenerationController
+  - `POST /api/schemes/generate`
+  - @UseGuards(JwtAuthGuard)
+  - Accetta `GenerateSchemeDto` e restituisce `GeneratedSchemeResult`
+
+Modulo 8.3 — GeminiGenerationService
+  - `generate(dto)` → richiesta a Gemini o fallback
+  - `buildPrompt(dto)` → prompt testuale in italiano, richiede JSON
+  - `parsePlan(text)` → pulisce markdown e parse JSON
+  - `convertToRecording(plan)` → interpola waypoints in keyframe
+  - `fallbackPlan(dto)` → ritorna un piano base valido
+
+4. ARCHITETTURA
+
+apps/api/src/
+├── generation/
+│   ├── generation.module.ts
+│   ├── generation.controller.ts
+│   ├── interfaces/
+│   │   ├── index.ts
+│   │   └── generation.interface.ts
+│   └── services/
+│       ├── gemini-generation.service.ts
+│       └── gemini-generation.service.spec.ts
+├── app.module.ts                  # importa GenerationModule
+└── schemes/interfaces/            # riutilizza PlayerKeyframe, Keyframe, MovementRecording
+
+5. FLUSSO DI FUNZIONAMENTO
+
+Richiesta:
+  Client → POST /api/schemes/generate
+  → { intent: "attacco in verticale", durationMs: 4000 }
+  → GenerationController → GeminiGenerationService
+  → Verifica GEMINI_API_KEY
+  → Se assente: fallbackPlan
+  → Altrimenti: prompt → Gemini API → risposta testuale
+  → parsePlan: pulisce ```json e JSON.parse
+  → convertToRecording:
+    * raccoglie tutti i timestamp dai waypoints
+    * per ogni timestamp genera un keyframe
+    * per ogni giocatore interpola x, y, rotation tra waypoint precedente e successivo
+  → Valida shape implicitamente attraverso i tipi
+  → Restituisce { recording, description, tags }
+
+6. API / ENDPOINT
+
+POST /api/schemes/generate
+  Headers: Authorization: Bearer <token>
+  Body:
+    {
+      "intent": "string",
+      "durationMs": 4000,
+      "team": "A" | "B"
+    }
+  Response:
+    {
+      "recording": {
+        "version": "1.0",
+        "duration": 4000,
+        "initialState": [ { "playerId", "x", "y", "rotation" } ],
+        "keyframes": [ { "timestamp": 4000, "players": [...] } ]
+      },
+      "description": "string",
+      "tags": ["gemini-generated" | "fallback"]
+    }
+
+7. MODELLO DATI
+
+MovementPlan:
+  - version
+  - duration
+  - description
+  - initialState: PlayerKeyframe[]
+  - movements: { playerId, waypoints: Waypoint[] }[]
+
+Waypoint:
+  - timestamp, x, y, rotation
+
+GenerateSchemeDto:
+  - intent (string)
+  - durationMs (number, optional)
+  - team ('A' | 'B', optional)
+
+GeneratedSchemeResult:
+  - recording: MovementRecording
+  - description: string
+  - tags: string[]
+
+8. FILE PRINCIPALI
+
+- apps/api/src/generation/generation.module.ts
+- apps/api/src/generation/generation.controller.ts
+- apps/api/src/generation/services/gemini-generation.service.ts
+- apps/api/src/generation/services/gemini-generation.service.spec.ts
+- apps/api/src/generation/interfaces/generation.interface.ts
+- apps/api/src/generation/interfaces/index.ts
+- apps/api/src/app.module.ts
+
+9. TEST E VERIFICHE
+
+Backend:
+  - npm run build: successo
+  - npm test: 34 passed (6 suite)
+  - npx tsc --noEmit: 0 errori
+
+I test unitari coprono:
+  - fallback con API key assente
+  - durata personalizzata
+  - shape del recording generato
+
+10. COME UTILIZZARE
+
+Avviare API:
+  npm run start:dev
+
+Richiesta:
+  curl -X POST http://localhost:3000/api/schemes/generate \
+    -H "Authorization: Bearer <token>" \
+    -H "Content-Type: application/json" \
+    -d '{ "intent": "portare la palla in avanti", "durationMs": 5000 }'
+
+Requisiti:
+  - API key di Gemini opzionale; in assenza restituisce fallback
+  - Redis non richiesto per la generazione sincrona
+
+11. DECISIONI TECNICHE
+
+- Endpoint sincrono: la generazione è veloce (<5s), per cui non è stata
+  accodata come per l'analisi. In futuro (MS13) si potrà spostare su coda
+- Prompt in italiano: mantiene coerenza con il resto dell'app
+- Coordinate normalizzate 0.0-1.0: riutilizza contratti esistenti
+- Interpolazione lineare: semplice, sufficiente per keyframe futsal
+- Fallback deterministico: garantisce che l'endpoint risponda sempre con
+  un `MovementRecording` valido anche senza API key
+- Parsing resistente: pulisce blocchi markdown tipici di Gemini
+- Import assoluti `src/...`: stesso pattern usato in Macrostep 07 per
+  evitare errori di risoluzione moduli
+
+12. LIMITAZIONI NOTE
+
+- Nessuna validazione strutturale esplicita del JSON generato da Gemini
+  (solo try/catch e fallback)
+- Nessun retry esplicito se la risposta è malformata
+- Interpolazione semplice lineare, senza easing
+- Il prompt non include vincoli tattici avanzati (zone, ruoli)
+- Nessun salvataggio automatico dello Schema generato nel database
+  (l'utente deve usare POST /api/schemes per persistere)
+
+13. PROSSIMO MACROSTEP
+
+Macrostep 9 — AI Assistant + RAG
+- Endpoint `/assistant/ask`
+- Channel A (domanda libera) e Channel B (domanda sullo schema)
+- Risposta basata su SchemeInsight con embedding pgvector
