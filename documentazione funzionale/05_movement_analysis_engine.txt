@@ -1,0 +1,164 @@
+MATCHCOACH-AI
+DOCUMENTAZIONE FUNZIONALE
+
+Macrostep: 05 - Movement Analysis Engine
+
+STATO
+COMPLETATO
+
+1. OBIETTIVO
+
+Creare un motore di analisi dei movimenti deterministico e puramente
+geometrico che, dato un BoardState v2.0 e un MovementRecording v1.0,
+produca un MovementAnalysisReport con metriche normalizzate,
+vettori, zone temporali, distanze, relazioni geometriche e simmetria.
+
+2. FUNZIONALITÀ IMPLEMENTATE
+
+- Calcolo delle traiettorie dei giocatori in metri reali
+- Distanza totale, velocità media e velocità massima per pedina
+- Spostamento (displacement) iniziale-finale
+- Analisi temporale per zone di campo (attacco, centrocampo, difesa)
+- Metriche di squadra: distanza media tra giocatori, spread, centroide,
+  simmetria sinistra/destra
+- Riassunto globale con distanza totale e giocatore più attivo
+- Engine testabile con unit test
+
+3. MODULI IMPLEMENTATI
+
+Modulo 5.1 — Contratto MovementAnalysisReport
+  - PlayerMovementMetrics
+  - TeamMovementMetrics
+  - MovementAnalysisReport con summary
+  - MovementAnalysisInput (board + recording)
+
+Modulo 5.2 — MovementAnalysisEngine
+  - Costruisce una timeline per ogni giocatore
+  - Interpola l'ultimo keyframe fino a [duration] se necessario
+  - Calcola distanza euclidea in metri reali usando campi 20x40
+  - Calcola velocità istantanea per segmento e massima
+  - Determina le zone di campo in base al terzo verticale (y)
+  - Calcola centroide, spread, distanze tra coppie e simmetria per squadra
+
+Modulo 5.3 — Test
+  - MovementAnalysisEngine spec con 3 test:
+    * empty report
+    * distance, speed and displacement
+    * team metrics
+
+4. ARCHITETTURA
+
+apps/api/src/
+├── movement/
+│   ├── interfaces/
+│   │   ├── index.ts
+│   │   └── movement-analysis.interface.ts
+│   └── services/
+│       ├── movement-analysis.engine.ts
+│       └── movement-analysis.engine.spec.ts
+└── schemes/interfaces/
+    ├── index.ts
+    ├── board-state.interface.ts
+    └── movement-recording.interface.ts
+
+5. FLUSSO DI FUNZIONAMENTO
+
+Input:
+  BoardState v2.0 + MovementRecording v1.0
+
+Elaborazione:
+  1. Estrazione degli ID giocatori da initialState e keyframes
+  2. Costruzione di una timeline temporale per ogni giocatore
+  3. Riempimento fino a [duration] con l'ultima posizione nota
+  4. Per ogni segmento temporale:
+     - distanza euclidea in metri
+     - velocità = distanza / delta t
+     - accumulo tempo nelle zone
+  5. Calcolo metriche di squadra sullo stato finale
+
+Output:
+  MovementAnalysisReport v1.0
+
+6. API / ENDPOINT
+
+Nessun endpoint esposto in questo macrostep.
+L'engine è invocabile programmaticamente. Verrà collegato alla pipeline
+POST /api/schemes/:id/analyze in Macrostep 7.
+
+7. MODELLO DATI
+
+MovementAnalysisReport v1.0:
+  - version: "1.0"
+  - durationMs: number
+  - fieldWidthMeters: 20
+  - fieldHeightMeters: 40
+  - playerMetrics: PlayerMovementMetrics[]
+  - teamMetrics: TeamMovementMetrics[]
+  - summary: { totalDistanceMeters, highestAverageSpeedMetersPerSecond,
+               mostActivePlayerId }
+
+PlayerMovementMetrics:
+  - playerId, team, number
+  - totalDistanceMeters
+  - averageSpeedMetersPerSecond
+  - maxSpeedMetersPerSecond
+  - displacementMeters
+  - startX, startY, endX, endY
+  - timeInZones: { attackMs, midfieldMs, defenseMs,
+                   attackPct, midfieldPct, defensePct }
+
+TeamMovementMetrics:
+  - team
+  - averagePlayerDistanceMeters
+  - averageSpreadMeters
+  - centroidX, centroidY
+  - symmetryScore (0..1)
+
+8. FILE PRINCIPALI
+
+- apps/api/src/movement/interfaces/movement-analysis.interface.ts
+- apps/api/src/movement/interfaces/index.ts
+- apps/api/src/movement/services/movement-analysis.engine.ts
+- apps/api/src/movement/services/movement-analysis.engine.spec.ts
+
+9. TEST E VERIFICHE
+
+Backend:
+  - npm run build: successo
+  - npm test: 28 passed (3 auth + 10 board + 10 recording + 5 engine)
+
+10. COME UTILIZZARE
+
+Esempio programmatico:
+  const engine = new MovementAnalysisEngine();
+  const report = engine.analyze({ board, recording });
+
+Input minimale:
+  board: BoardState v2.0 con players
+  recording: MovementRecording v1.0 con initialState e keyframes
+
+11. DECISIONI TECNICHE
+
+- Campo futsal 20x40 metri: conversione fedele per distanze e velocità
+- Terzi verticali per le zone: attacco (y > 0.66), centrocampo, difesa (y < 0.33)
+- Timeline implicita a t=0 con initialState e a t=duration con l'ultimo keyframe
+- Interpolazione non necessaria: il campionamento è gia fornito dai keyframe
+- Simmetria: confronto numero giocatori a sinistra e destra del centro
+- Engine privo di dipendenze NestJS: riutilizzabile in worker, test e script
+
+12. LIMITAZIONI NOTE
+
+- Non include interpolazione temporale (usiamo i keyframe così come sono)
+- Non calcola vettori di passaggio o pressing avversario
+- Non include accelerazioni, curve o cambi di direzione
+- L'orientamento offensivo/difensivo è fissato sul terzo di campo,
+  non sulla direzione di gioco della squadra
+- Non esiste ancora un endpoint REST per l'analisi
+
+13. PROSSIMO MACROSTEP
+
+Macrostep 6 — Gemini Tactical Brain:
+- Prompt engineering per interpretazione tattica
+- Integrazione client Google Gemini
+- Analisi sequenziale e punteggio di confidenza
+- Generazione di descrizione tattica a partire da MovementAnalysisReport
