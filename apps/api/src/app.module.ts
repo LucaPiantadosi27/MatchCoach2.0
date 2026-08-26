@@ -10,6 +10,7 @@ import { TeamsModule } from './teams/teams.module';
 import { AnalysisModule } from './analysis/analysis.module';
 import { GenerationModule } from './generation/generation.module';
 import { AssistantModule } from './assistant/assistant.module';
+import { VideoModule } from './video/video.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { AssistantModule } from './assistant/assistant.module';
     AnalysisModule,
     GenerationModule,
     AssistantModule,
+    VideoModule,
   ],
 })
 export class AppModule {}

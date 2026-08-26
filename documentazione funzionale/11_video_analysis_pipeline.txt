@@ -1,0 +1,218 @@
+MATCHCOACH-AI
+DOCUMENTAZIONE FUNZIONALE
+
+Macrostep: 11 - Video analysis pipeline
+
+STATO
+COMPLETATO
+
+1. OBIETTIVO
+
+Permettere all'utente di registrare un video tattico (o collegarlo a uno
+schema esistente) e ottenere un'analisi asincrona del movimento tramite
+worker BullMQ. Il video viene tracciato nello stato PENDING → PROCESSING
+→ COMPLETED/FAILED. Se vengono forniti i frame rilevati, il processor li
+usa; altrimenti genera un recording di esempio dallo schema collegato.
+
+2. FUNZIONALITÀ IMPLEMENTATE
+
+- Modelli Prisma `Video` e `VideoInsight` con relazione 1:1
+- Enum `VideoStatus` (PENDING, PROCESSING, COMPLETED, FAILED)
+- `VideoModule` con Service, Controller e Processor
+- `POST /api/videos` per creare una risorsa video
+- `GET /api/videos` per elencare i video dell'utente
+- `GET /api/videos/:id` per dettaglio
+- `POST /api/videos/:id/analyze` per accodare l'analisi
+- `VideoProcessor` BullMQ su coda `video-analysis`:
+  * aggiorna stato PROCESSING
+  * costruisce un `MovementRecording` dai frame o dallo schema
+  * esegue `MovementAnalysisEngine`
+  * chiama `GeminiService` per interpretazione tattica
+  * salva `VideoInsight` e aggiorna stato COMPLETED/FAILED
+- Collegamento a `MovementAnalysisEngine` e `GeminiService`
+- Test unitari per `VideoService`
+- Regenerazione Prisma Client
+
+3. MODULI IMPLEMENTATI
+
+Modulo 11.1 — Prisma schema
+  - `Video` con userId, schemeId, name, filename, status, storageKey, frames
+  - `VideoInsight` con videoId, description, tags, movementMetrics, modelName, tokenUsage
+  - Relazione `User.videos` e `Scheme.videos`
+
+Modulo 11.2 — VideoModule
+  - imports: QueueModule, PrismaModule, GeminiModule
+  - controller: VideoController
+  - providers: VideoService, VideoProcessor
+
+Modulo 11.3 — VideoController
+  - `POST /api/videos`
+  - `GET /api/videos`
+  - `GET /api/videos/:id`
+  - `POST /api/videos/:id/analyze`
+
+Modulo 11.4 — VideoService
+  - `create(userId, dto)`
+  - `findAllByUser(userId)`
+  - `findOne(id, userId)`
+  - `requestAnalysis(videoId, userId)`
+
+Modulo 11.5 — VideoProcessor
+  - `@Processor('video-analysis')`
+  - `process(job)` esegue pipeline di analisi completa
+
+4. ARCHITETTURA
+
+apps/api/src/
+├── video/
+│   ├── video.module.ts
+│   ├── video.controller.ts
+│   ├── dto/
+│   │   └── create-video.dto.ts
+│   ├── interfaces/
+│   │   ├── index.ts
+│   │   └── video-job-data.interface.ts
+│   ├── services/
+│   │   ├── video.service.ts
+│   │   └── video.service.spec.ts
+│   └── processors/
+│       └── video.processor.ts
+├── queue/
+│   └── queue.module.ts              # registra coda video-analysis
+├── app.module.ts                    # importa VideoModule
+└── prisma/schema.prisma             # Video e VideoInsight
+
+5. FLUSSO DI FUNZIONAMENTO
+
+Creazione:
+  Client → POST /api/videos { name, schemeId?, filename? }
+  → VideoService crea Video con status PENDING
+  → restituisce Video
+
+Analisi:
+  Client → POST /api/videos/:id/analyze
+  → VideoService accoda job su `video-analysis`
+  → Redis/BullMQ
+  → VideoProcessor:
+    * aggiorna stato PROCESSING
+    * recupera Video e Scheme
+    * buildRecording: se `frames` presenti usa i frame, altrimenti
+      genera recording di esempio dallo schema
+    * MovementAnalysisEngine → report
+    * GeminiService → interpretation
+    * Prisma.videoInsight.upsert
+    * aggiorna stato COMPLETED
+  → Restituisce { jobId, videoId, status: 'queued' }
+
+6. API / ENDPOINT
+
+POST /api/videos
+  Headers: Authorization: Bearer <token>
+  Body:
+    {
+      "name": "string",
+      "schemeId?": "string",
+      "filename?": "string"
+    }
+
+GET /api/videos
+  Headers: Authorization: Bearer <token>
+
+GET /api/videos/:id
+  Headers: Authorization: Bearer <token>
+
+POST /api/videos/:id/analyze
+  Headers: Authorization: Bearer <token>
+  Response:
+    {
+      "jobId": "string",
+      "videoId": "string",
+      "status": "queued"
+    }
+
+7. MODELLO DATI
+
+Video:
+  - id, userId, schemeId?, name, filename?, status, storageKey?, frames? (Json)
+  - createdAt, updatedAt
+
+VideoInsight:
+  - id, videoId (unique), description, tags, movementMetrics (Json)
+  - modelName, tokenUsage, createdAt
+
+VideoStatus:
+  - PENDING
+  - PROCESSING
+  - COMPLETED
+  - FAILED
+
+8. FILE PRINCIPALI
+
+- apps/api/prisma/schema.prisma
+- apps/api/src/video/video.module.ts
+- apps/api/src/video/video.controller.ts
+- apps/api/src/video/services/video.service.ts
+- apps/api/src/video/services/video.service.spec.ts
+- apps/api/src/video/processors/video.processor.ts
+- apps/api/src/video/dto/create-video.dto.ts
+- apps/api/src/video/interfaces/video-job-data.interface.ts
+- apps/api/src/app.module.ts
+
+9. TEST E VERIFICHE
+
+Backend:
+  - npx prisma generate: successo
+  - npm run build: successo
+  - npm test: 38 passed (8 suite)
+
+I test unitari coprono:
+  - creazione di un Video
+  - accodamento analisi e update stato
+
+10. COME UTILIZZARE
+
+Avviare worker:
+  cd apps/api && npm run start:dev
+
+Creare video:
+  curl -X POST http://localhost:3000/api/videos \
+    -H "Authorization: Bearer <token>" \
+    -H "Content-Type: application/json" \
+    -d '{ "name": "Partita vs Juve", "schemeId": "..." }'
+
+Avviare analisi:
+  curl -X POST http://localhost:3000/api/videos/<id>/analyze \
+    -H "Authorization: Bearer <token>"
+
+Requisiti:
+  - PostgreSQL con schema Prisma applicato
+  - Redis in esecuzione per BullMQ
+  - GEMINI_API_KEY opzionale (fallback)
+
+11. DECISIONI TECNICHE
+
+- Pipeline asincrona su BullMQ: coerente con Macrostep 7
+- Frame detection non reale: il processor accetta `frames` JSON opzionale;
+  in assenza genera un recording di esempio dallo schema
+- `VideoInsight` separato da `Video`: mantiene 1:1 e permette aggiornamenti
+- Status tracking esplicito: migliore UX per tracciare elaborazione
+- Prisma schema esteso con relazioni inverse in `User` e `Scheme`
+- Regenerazione Prisma Client per attivare `prisma.video` e `prisma.videoInsight`
+- Import relativi usati per compatibilità Jest
+
+12. LIMITAZIONI NOTE
+
+- Nessun upload binario reale (file video non viene salvato su MinIO)
+- Nessun estrattore di frame da video (ffmpeg non integrato)
+- Recording generato di esempio quando `frames` è assente
+- Nessun endpoint per inviare frame rilevati
+- Nessuna UI mobile per video
+- Non esegue migration su DB; schema Prisma aggiornato ma il database
+  deve essere migrato separatamente
+
+13. PROSSIMO MACROSTEP
+
+Macrostep 12 — Premium, limits, payments
+- Ruoli e tier utente
+- Limiti di analisi/generazioni
+- Pagamenti e abbonamenti

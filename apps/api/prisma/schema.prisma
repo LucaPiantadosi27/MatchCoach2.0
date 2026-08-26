@@ -44,6 +44,7 @@ model User {
   ownedTeams     Team[]
   schemes        Scheme[]
   seasons        Season[]
+  videos         Video[]
 
   @@map("users")
 }
@@ -136,6 +137,7 @@ model Scheme {
   team            Team?         @relation(fields: [teamId], references: [id], onDelete: SetNull)
   season          Season?       @relation(fields: [seasonId], references: [id], onDelete: SetNull)
   insight         SchemeInsight?
+  videos          Video[]
 
   @@index([userId])
   @@index([teamId])
@@ -159,4 +161,48 @@ model SchemeInsight {
   scheme          Scheme @relation(fields: [schemeId], references: [id], onDelete: Cascade)
 
   @@map("scheme_insights")
+}
+
+// ─── VIDEO ANALYSIS PIPELINE ─────────────────────────────
+
+enum VideoStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model Video {
+  id          String      @id @default(uuid())
+  userId      String      @map("user_id")
+  schemeId    String?     @map("scheme_id")
+  name        String
+  filename    String?
+  status      VideoStatus @default(PENDING)
+  storageKey  String?     @map("storage_key")
+  frames      Json?
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scheme      Scheme?     @relation(fields: [schemeId], references: [id], onDelete: SetNull)
+  insight     VideoInsight?
+
+  @@index([userId])
+  @@map("videos")
+}
+
+model VideoInsight {
+  id              String   @id @default(uuid())
+  videoId         String   @unique @map("video_id")
+  description     String
+  tags            String[] @default([])
+  movementMetrics Json?    @map("movement_metrics")
+  modelName       String?  @map("model_name")
+  tokenUsage      Int?     @map("token_usage")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  video           Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@map("video_insights")
 }
