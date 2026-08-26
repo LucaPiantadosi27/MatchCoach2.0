@@ -1,0 +1,196 @@
+MATCHCOACH-AI
+DOCUMENTAZIONE FUNZIONALE
+
+Macrostep: 09 - AI Assistant + RAG
+
+STATO
+COMPLETATO
+
+1. OBIETTIVO
+
+Implementare un endpoint `POST /api/assistant/ask` che esponga due canali:
+- **Channel A**: domanda libera su tattica di futsal
+- **Channel B**: domanda contestualizzata a uno Scheme specifico, usando
+  i dati di `SchemeInsight` come contesto RAG
+
+L'obiettivo è fornire all'utente un assistente AI capace di rispondere in
+italiano, con fallback quando l'API Gemini non è configurata.
+
+2. FUNZIONALITÀ IMPLEMENTATE
+
+- DTO `AskDto` con validazione `class-validator`
+- `AssistantService` con metodo `ask(dto, userId)`
+- Channel A: prompt generico su futsal
+- Channel B: recupero Scheme + SchemeInsight dal database, costruzione
+  del contesto testuale e invio a Gemini
+- `AssistantController` con endpoint `POST /api/assistant/ask`
+- `AssistantModule` registrato in `AppModule`
+- Test unitari per fallback e validazione channel B
+- Riferimento al campo `embedding` pgvector di `SchemeInsight` già
+  presente nello schema Prisma, lasciato per abilitare RAG semantico
+  in futuro
+
+3. MODULI IMPLEMENTATI
+
+Modulo 9.1 — AssistantModule
+  - imports: ConfigModule, PrismaModule
+  - controller: AssistantController
+  - provider: AssistantService
+  - exports: AssistantService
+
+Modulo 9.2 — AssistantController
+  - `POST /api/assistant/ask`
+  - @UseGuards(JwtAuthGuard)
+  - @CurrentUser per ottenere userId
+  - Restituisce `AskResponse { answer, sources? }`
+
+Modulo 9.3 — AssistantService
+  - `ask(dto, userId)`
+  - `buildPrompt(dto, userId)`
+  - `formatResponse(answer, dto)`
+  - `fallback(dto)`
+
+4. ARCHITETTURA
+
+apps/api/src/
+├── assistant/
+│   ├── assistant.module.ts
+│   ├── assistant.controller.ts
+│   ├── dto/
+│   │   └── ask.dto.ts
+│   ├── interfaces/
+│   │   ├── index.ts
+│   │   └── assistant.interface.ts
+│   └── services/
+│       ├── assistant.service.ts
+│       └── assistant.service.spec.ts
+├── app.module.ts                  # importa AssistantModule
+├── prisma/schema.prisma           # SchemeInsight con embedding
+└── schemes/
+    └── schemes.service.ts         # riutilizzato via PrismaService
+
+5. FLUSSO DI FUNZIONAMENTO
+
+Channel A:
+  Client → POST /api/assistant/ask
+  → { channel: 'A', question: 'Come si difende il basso?' }
+  → AssistantController → AssistantService
+  → Verifica GEMINI_API_KEY
+  → Se assente: fallback
+  → Altrimenti: prompt generico → Gemini API → risposta
+  → Restituisce { answer }
+
+Channel B:
+  Client → POST /api/assistant/ask
+  → { channel: 'B', schemeId: '...', question: 'Cosa miglioreresti?' }
+  → Verifica `schemeId` obbligatorio
+  → Recupero Scheme e SchemeInsight da Prisma
+  → Verifica ownership
+  → Costruzione contesto: nome, descrizione, insight, tag
+  → Prompt contestualizzato → Gemini API → risposta
+  → Restituisce { answer, sources: ['scheme:<id>'] }
+
+6. API / ENDPOINT
+
+POST /api/assistant/ask
+  Headers: Authorization: Bearer <token>
+  Body:
+    {
+      "channel": "A" | "B",
+      "question": "string",
+      "schemeId?": "string"
+    }
+  Response:
+    {
+      "answer": "string",
+      "sources?": ["scheme:<id>"]
+    }
+
+7. MODELLO DATI
+
+AskDto:
+  - channel: 'A' | 'B'
+  - question: string
+  - schemeId?: string
+
+AskResponse:
+  - answer: string
+  - sources?: string[]
+
+SchemeInsight (riutilizzato):
+  - description
+  - tags
+  - movementMetrics
+  - embedding (pgvector, non popolato)
+
+8. FILE PRINCIPALI
+
+- apps/api/src/assistant/assistant.module.ts
+- apps/api/src/assistant/assistant.controller.ts
+- apps/api/src/assistant/services/assistant.service.ts
+- apps/api/src/assistant/services/assistant.service.spec.ts
+- apps/api/src/assistant/dto/ask.dto.ts
+- apps/api/src/assistant/interfaces/assistant.interface.ts
+- apps/api/src/assistant/interfaces/index.ts
+- apps/api/src/app.module.ts
+
+9. TEST E VERIFICHE
+
+Backend:
+  - npm run build: successo
+  - npm test: 36 passed (7 suite)
+  - npx tsc --noEmit: 0 errori
+
+I test unitari coprono:
+  - fallback channel A senza API key
+  - errore channel B senza schemeId
+
+10. COME UTILIZZARE
+
+Avviare API:
+  npm run start:dev
+
+Richieste:
+  Channel A:
+    curl -X POST http://localhost:3000/api/assistant/ask \
+      -H "Authorization: Bearer <token>" \
+      -H "Content-Type: application/json" \
+      -d '{ "channel": "A", "question": "Come si difende il basso?" }'
+
+  Channel B:
+    curl -X POST http://localhost:3000/api/assistant/ask \
+      -H "Authorization: Bearer <token>" \
+      -H "Content-Type: application/json" \
+      -d '{ "channel": "B", "schemeId": "...", "question": "Cosa miglioreresti?" }'
+
+Requisiti:
+  - GEMINI_API_KEY opzionale (fallback disponibile)
+  - PostgreSQL con schema Prisma applicato
+
+11. DECISIONI TECNICHE
+
+- Endpoint sincrono: la latenza di una risposta LLM è accettabile
+- Channel B non esegue similarity search vettoriale: l'embedding è già
+  nel modello `SchemeInsight` ma non è popolato; Channel B recupera
+  direttamente lo Scheme associato
+- Prompt in italiano: coerenza con il resto dell'app
+- Fallback distinto per A e B: comunica chiaramente la mancanza di API key
+- `sources` inclusa solo per channel B: fornisce provenienza del contesto
+- Validation del DTO con `class-validator` e `IsIn`
+- Ownership check lato service per channel B
+
+12. LIMITAZIONI NOTE
+
+- RAG semantico non implementato (embedding non generato)
+- Nessuna memorizzazione della cronologia delle domande
+- Nessun streaming della risposta
+- Nessun rate limiting sull'endpoint
+- Nessun indicizzazione full-text di `description` o `tags`
+- Nessuna UI mobile integrata (verrà in MS10)
+
+13. PROSSIMO MACROSTEP
+
+Macrostep 10 — Tactical chat
+- Interfaccia chat mobile
+- Contesto partita e schemi salvati
+- Input vocale e salvataggio della conversazione
