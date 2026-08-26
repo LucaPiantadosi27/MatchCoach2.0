@@ -1,0 +1,186 @@
+MATCHCOACH-AI
+DOCUMENTAZIONE FUNZIONALE
+
+Macrostep: 07 - Full analysis pipeline
+
+STATO
+COMPLETATO
+
+1. OBIETTIVO
+
+Collegare i componenti sviluppati nei macrostep 5 e 6 in una pipeline
+completa e asincrona: dallo Schema salvato, eseguire MovementAnalysisEngine,
+passare il report a GeminiService e persistere il risultato in
+SchemeInsight. Esporre un endpoint REST per avviare l'analisi via worker
+BullMQ.
+
+2. FUNZIONALITÀ IMPLEMENTATE
+
+- Modulo `AnalysisModule` registrato in AppModule
+- Endpoint `POST /api/schemes/:id/analyze` protetto da JWT
+- `AnalysisService` che accoda un job nella coda `scheme-insight`
+- `AnalysisProcessor` (BullMQ worker) che esegue:
+  * recupero dello Schema da Prisma
+  * esecuzione di MovementAnalysisEngine
+  * invocazione di GeminiService per l'interpretazione
+  * upsert di SchemeInsight con descrizione, tag, metriche, modello, token
+- Integrazione con QueueModule e Redis esistenti
+- Persistenza delle metriche di movimento in JSON
+
+3. MODULI IMPLEMENTATI
+
+Modulo 7.1 — AnalysisModule
+  - imports: QueueModule, PrismaModule, GeminiModule
+  - controller: AnalysisController
+  - providers: AnalysisService, AnalysisProcessor
+
+Modulo 7.2 — AnalysisController
+  - `POST /api/schemes/:id/analyze`
+  - @UseGuards(JwtAuthGuard)
+  - @CurrentUser per ownership check
+  - Restituisce { jobId, schemeId, status: 'queued' }
+
+Modulo 7.3 — AnalysisService
+  - Verifica esistenza e ownership dello Scheme
+  - Accoda job `analyze` nella coda `scheme-insight`
+  - Rimuove job completati, conserva quelli falliti
+
+Modulo 7.4 — AnalysisProcessor
+  - Estende WorkerHost di @nestjs/bullmq
+  - `@Processor('scheme-insight')`
+  - Processa `AnalyzeJobData { schemeId, userId }`
+  - Recupera boardState e recording dallo Scheme
+  - Se il recording è assente, costruisce uno stato iniziale dal board
+  - Esegue MovementAnalysisEngine
+  - Esegue GeminiService
+  - Upsert di SchemeInsight via Prisma
+
+4. ARCHITETTURA
+
+apps/api/src/
+├── analysis/
+│   ├── analysis.module.ts
+│   ├── analysis.controller.ts
+│   ├── interfaces/
+│   │   ├── index.ts
+│   │   └── analysis-job-data.interface.ts
+│   ├── services/
+│   │   └── analysis.service.ts
+│   └── processors/
+│       └── analysis.processor.ts
+├── app.module.ts                  # importa AnalysisModule
+├── queue/
+│   └── queue.module.ts            # registra coda scheme-insight
+├── prisma/
+│   └── schema.prisma              # model SchemeInsight
+├── movement/
+│   └── services/movement-analysis.engine.ts
+└── gemini/
+    └── services/gemini.service.ts
+
+5. FLUSSO DI FUNZIONAMENTO
+
+Richiesta:
+  Client → POST /api/schemes/:id/analyze (JWT)
+  → AnalysisController → AnalysisService
+  → Verifica ownership
+  → Aggiunge job a scheme-insight queue
+  → Redis + BullMQ
+  → Worker AnalysisProcessor
+  → Recupera Scheme da PostgreSQL
+  → MovementAnalysisEngine produce report
+  → GeminiService produce interpretazione
+  → Prisma SchemeInsight.upsert
+  → Restituisce { jobId, schemeId, status: 'queued' }
+
+6. API / ENDPOINT
+
+POST /api/schemes/:id/analyze
+  Headers: Authorization: Bearer <token>
+  Response:
+    {
+      "jobId": "string",
+      "schemeId": "string",
+      "status": "queued"
+    }
+
+7. MODELLO DATI
+
+SchemeInsight (Prisma):
+  - id, schemeId (unique)
+  - description
+  - tags (String[])
+  - movementMetrics (Json)
+  - embedding Unsupported("vector(768)")
+  - modelName
+  - tokenUsage
+  - createdAt
+
+AnalyzeJobData:
+  - schemeId: string
+  - userId: string
+
+8. FILE PRINCIPALI
+
+- apps/api/src/analysis/analysis.module.ts
+- apps/api/src/analysis/analysis.controller.ts
+- apps/api/src/analysis/services/analysis.service.ts
+- apps/api/src/analysis/processors/analysis.processor.ts
+- apps/api/src/analysis/interfaces/analysis-job-data.interface.ts
+- apps/api/src/app.module.ts
+- apps/api/src/queue/queue.module.ts
+
+9. TEST E VERIFICHE
+
+Backend:
+  - npm run build: successo
+  - npm test: 31 passed
+  - npx tsc --noEmit: 0 errori
+
+Note:
+  - I test unitari non includono test espliciti di AnalysisProcessor
+    perché richiederebbe connessione Redis. Verranno aggiunti in MS13.
+  - L'endpoint è raggiungibile solo con JWT valido.
+
+10. COME UTILIZZARE
+
+Avviare worker:
+  npm run start:dev
+  (il worker gira nel processo NestJS principale)
+
+Richiesta:
+  curl -X POST http://localhost:3000/api/schemes/<id>/analyze \
+    -H "Authorization: Bearer <token>"
+
+Requisiti:
+  - PostgreSQL con schema Prisma applicato
+  - Redis in esecuzione per BullMQ
+  - GEMINI_API_KEY opzionale (fallback disponibile)
+
+11. DECISIONI TECNICHE
+
+- Worker nel processo principale: per dev è sufficiente, in produzione
+  si passerà a un processo worker separato (Macrostep 13)
+- Coda `scheme-insight` pre-registrata in QueueModule
+- Upsert di SchemeInsight: mantiene 1:1 con Scheme
+- Embedding pgvector non popolato: lasciato a schema Unsupported per MS9 RAG
+- Ownership check lato service: evita accodare job su risorse altrui
+- Job id deterministico `analyze-<schemeId>`: evita duplicati
+- Import assoluti `src/...`: hanno risolto problemi di risoluzione moduli
+  nelle sottocartelle `analysis/services` e `analysis/processors`
+
+12. LIMITAZIONI NOTE
+
+- Worker non è un processo separato (solo dev)
+- Nessun test E2E della coda (richiede Redis)
+- Embedding non generato (servirà pgvector + modello di embedding in MS9)
+- Nessuna gestione avanzata di retry o rate limiting
+- Nessun endpoint GET per lo stato del job
+- Il fallback Gemini è usato se la chiave non è configurata
+
+13. PROSSIMO MACROSTEP
+
+Macrostep 8 — Gemini generation → coordinates:
+- Generazione di MovementPlan da intento in linguaggio naturale
+- Conversione in MovementRecording v1.0
+- Validazione e retry

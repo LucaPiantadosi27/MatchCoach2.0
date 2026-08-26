@@ -7,6 +7,7 @@ import { StorageModule } from './storage/storage.module';
 import { QueueModule } from './queue/queue.module';
 import { SchemesModule } from './schemes/schemes.module';
 import { TeamsModule } from './teams/teams.module';
+import { AnalysisModule } from './analysis/analysis.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { TeamsModule } from './teams/teams.module';
     QueueModule,
     SchemesModule,
     TeamsModule,
+    AnalysisModule,
   ],
 })
 export class AppModule {}
