@@ -1,0 +1,162 @@
+MATCHCOACH-AI
+DOCUMENTAZIONE FUNZIONALE
+
+Macrostep: 03 - Lavagna tattica Futsal
+
+STATO
+COMPLETATO
+
+1. OBIETTIVO
+
+Realizzare la lavagna tattica interattiva in Flutter per la creazione di
+schemi statici e la preparazione delle registrazioni. Il componente deve
+essere source-agnostic (può ricevere BoardState manuale, registrato o
+generato da Gemini) e utilizzare le coordinate normalizzate 0-1 definite
+nel contratto BoardState v2.0.
+
+2. FUNZIONALITÀ IMPLEMENTATE
+
+- Campo da futsal disegnato con CustomPainter e coordinate normalizzate
+- Pedine per team A (rosso) e team B (blu) con numero, selezione e drag
+- Rotazione delle pedine di +/- 45° tramite controlli
+- Disegno di linee, frecce e freehand con conversione in DrawingPath
+- Undo e cancellazione dei disegni
+- Aggiunta e rimozione delle pedine
+- Salvataggio simulato del BoardState (JSON esportato, API in MS9)
+- Test di smoke per il rendering del widget
+
+3. MODULI IMPLEMENTATI
+
+Modulo 3.1 — Modello dati BoardState (Flutter)
+  - BoardState, PlayerState, DrawingPath, Point, BoardStateMeta
+  - toJson / fromJson compatibili con il contratto v2.0 del backend
+
+Modulo 3.2 — State management (Riverpod)
+  - boardProvider: StateNotifier<BoardState>
+  - drawToolProvider: stato del pennello attivo
+  - selectedPlayerProvider: pedina selezionata
+  - Metodi per muovere, ruotare, aggiungere, rimuovere, disegnare
+
+Modulo 3.3 — Campo e rendering
+  - FutsalCourtPainter disegna:
+    * campo verde, linee bianche, centrocampo, aree, porte, calci d'angolo
+    * pedine con numero e indicatore di rotazione
+    * paths: linee, frecce e tratti freehand
+  - TacticalBoardScreen gestisce:
+    * LayoutBuilder per mantenere aspect ratio 0.5 (futsal 20x40)
+    * GestureDetector per drag e disegno
+    * Barra strumenti per modalità e controlli
+
+4. ARCHITETTURA
+
+apps/mobile/lib/
+├── main.dart                         # App con ProviderScope
+├── models/
+│   └── board_state.dart              # Contratti dati
+├── providers/
+│   └── board_provider.dart           # Riverpod state
+├── painters/
+│   └── futsal_court_painter.dart     # CustomPainter campo
+├── screens/
+│   └── tactical_board_screen.dart    # UI e interazioni
+└── test/
+    └── widget_test.dart              # Smoke test
+
+5. FLUSSO DI FUNZIONAMENTO
+
+Avvio app:
+  ProviderScope → MatchCoachApp → TacticalBoardScreen
+
+Interazione:
+  1. L'utente sceglie uno strumento (selezione/linea/freccia/freehand)
+  2. Tocca il campo:
+     - Selezione: seleziona e trascina una pedina
+     - Disegno: inizia un DrawingPath
+  3. I movimenti vengono convertiti in coordinate 0-1 e salvati nel BoardState
+  4. CustomPainter ridisegna in base al nuovo stato
+  5. L'utente può ruotare, aggiungere o rimuovere pedine
+  6. Salvataggio esporta il JSON del BoardState (API da integrare in MS9)
+
+6. API / ENDPOINT
+
+Nessun nuovo endpoint backend in questo macrostep.
+Il salvataggio reale verrà implementato in Macrostep 9 collegando:
+  POST /api/schemes
+  con Authorization: Bearer <token>
+
+7. MODELLO DATI
+
+BoardState (Flutter):
+  - version: "2.0"
+  - players: List<PlayerState>
+  - paths: List<DrawingPath>
+  - meta: BoardStateMeta?
+
+PlayerState:
+  - id, team ("A" | "B"), number (1-99)
+  - x, y (0.0-1.0), rotation (0-360)
+  - label?
+
+DrawingPath:
+  - id, type ("line" | "arrow" | "freehand")
+  - points: List<Point>
+  - color?, strokeWidth?
+
+Point:
+  - x, y (0.0-1.0)
+
+8. FILE PRINCIPALI
+
+- apps/mobile/lib/main.dart
+- apps/mobile/lib/models/board_state.dart
+- apps/mobile/lib/providers/board_provider.dart
+- apps/mobile/lib/painters/futsal_court_painter.dart
+- apps/mobile/lib/screens/tactical_board_screen.dart
+- apps/mobile/pubspec.yaml
+
+9. TEST E VERIFICHE
+
+Flutter:
+  - flutter analyze: 0 issues
+  - flutter test: 1 passed
+  - Build API backend (MS2) ancora valida: npm run build, npm test passati
+
+10. COME UTILIZZARE
+
+Avviare l'app:
+  cd apps/mobile
+  flutter run
+
+Azioni:
+  - Seleziona icona "Seleziona" e tocca/trascina le pedine
+  - Scegli linea/freccia/freehand e traccia sul campo
+  - Premi "-45°" / "+45°" per ruotare la pedina selezionata
+  - "Undo" rimuove l'ultimo disegno, "Cancella" elimina tutti i disegni
+  - "A" / "B" aggiunge una nuova pedina alla squadra
+  - "Salva" stampa il JSON di BoardState in console (da sostituire con API)
+
+11. DECISIONI TECNICHE
+
+- Coordinate normalizzate 0-1: indipendenti dalla risoluzione del dispositivo
+- CustomPainter separato: isolamento della logica di rendering
+- Riverpod per stato globale: predispone scalabilità per go_router e service
+- Aspect ratio 0.5: conforme al campo futsal 20x40
+- LayoutBuilder: adatta il campo alla larghezza disponibile in portrait/landscape
+- Snapshot PNG: il widget è racchiuso in ClipRect per supportare in futuro
+  RepaintBoundary + toImage (Macrostep 3/11)
+
+12. LIMITAZIONI NOTE
+
+- Salvataggio avviene solo in console; richiede integrazione con API e auth
+- Snapshot PNG non ancora generato (verrà con MinIO in MS3+ o MS11)
+- Rotazione con step di 45°; rotazione continua manuale non implementata
+- Non c'è ancora playback né registrazione movimento (MS4)
+- Gli schemi non possiedono ancora title/tag editabili nella UI
+
+13. PROSSIMO MACROSTEP
+
+Macrostep 4 — Recording & Playback:
+- Registrazione keyframe dei movimenti delle pedine
+- Timeline con play/pausa/seek
+- Interpolazione tra keyframe
+- Salvataggio MovementRecording v1.0
