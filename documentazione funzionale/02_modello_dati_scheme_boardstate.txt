@@ -1,0 +1,311 @@
+MATCHCOACH-AI
+DOCUMENTAZIONE FUNZIONALE
+
+Macrostep: 02 - Modello Dati Scheme e BoardState
+
+STATO
+COMPLETATO
+
+1. OBIETTIVO
+
+Definire il modello dati completo del progetto: User/Team, Scheme unificato
+(static + recording), BoardState formale con coordinate normalizzate,
+MovementRecording con keyframes, validazione server-side rigorosa e
+versionamento dei contratti.
+
+2. FUNZIONALITÀ IMPLEMENTATE
+
+- Schema Prisma completo con tutte le entità relazionali
+- Interfacce TypeScript formali per BoardState v2.0 e MovementRecording v1.0
+- Validatore BoardState con controllo coordinate, team, numero, rotation
+- Validatore MovementRecording con controllo timestamp, durata, keyframes
+- CRUD completo per Schemes con validazione integrata
+- CRUD per Teams e TeamPlayers
+- Autorizzazione per-risorsa (owner check)
+- 25 test unitari passati
+
+3. MODULI IMPLEMENTATI
+
+Modulo 2.1 — User/Team
+  - Model Team con owner e members
+  - Model TeamMember (relazione many-to-many user-team)
+  - Model TeamPlayer (rosa giocatori con numero e posizione)
+  - Model Season (stagioni con date)
+  - TeamsService: createTeam, findTeamsByUser, findTeam, addPlayer, removePlayer
+  - TeamsController: CRUD endpoints protetti da JwtAuthGuard
+  - Ownership verification su operazioni di modifica
+
+Modulo 2.2 — Scheme
+  Entità unificata:
+    Scheme
+    ├── type: STATIC (formazione fissa)
+    └── type: RECORDING (con keyframes)
+  
+  Campi principali:
+    - boardState (Json) — lo stato della lavagna
+    - recording (Json?) — i keyframes se type=RECORDING
+    - contractVersion — versione del contratto dati
+    - tags — etichette per organizzazione/ricerca
+    - snapshotKey — riferimento PNG su MinIO
+  
+  Relazione 1:1 con SchemeInsight (preparata per Macrostep 7)
+
+Modulo 2.3 — BoardState (v2.0)
+  Interfaccia formale:
+    BoardState {
+      version: "2.0"
+      players: PlayerState[]
+      paths: DrawingPath[]
+      meta?: BoardStateMeta
+    }
+  
+  PlayerState:
+    - id: string
+    - team: "A" | "B"
+    - number: 1–99
+    - x: 0.0–1.0 (normalizzato)
+    - y: 0.0–1.0 (normalizzato)
+    - rotation: 0–360
+    - label?: string
+  
+  DrawingPath:
+    - id: string
+    - type: "line" | "arrow" | "freehand"
+    - points: Array<{x, y}> (normalizzati)
+    - color?: string
+    - strokeWidth?: number
+
+Modulo 2.4 — MovementRecording (v1.0)
+  Interfaccia formale:
+    MovementRecording {
+      version: "1.0"
+      duration: number (ms)
+      initialState: PlayerKeyframe[]
+      keyframes: Keyframe[]
+    }
+  
+  Keyframe:
+    - timestamp: number (ms, crescente)
+    - players: PlayerKeyframe[]
+  
+  PlayerKeyframe:
+    - playerId: string
+    - x: 0.0–1.0
+    - y: 0.0–1.0
+    - rotation: 0–360
+
+Modulo 2.5 — Validazione
+  validateBoardState():
+    - version supportata (1.0, 2.0)
+    - players è array
+    - ogni player: id, team A/B, number 1-99, x/y 0-1, rotation 0-360
+    - paths opzionale ma se presente: id, type valido, points con coords 0-1
+  
+  validateMovementRecording():
+    - version supportata (1.0)
+    - duration > 0
+    - initialState: array di PlayerKeyframe validi
+    - keyframes: array ordinato per timestamp crescente
+    - timestamp non supera duration
+    - ogni PlayerKeyframe: playerId, x/y 0-1, rotation 0-360
+
+Modulo 2.6 — Versioning
+  - BoardState: version "2.0" (supportata anche "1.0" per compatibilità)
+  - MovementRecording: version "1.0"
+  - Scheme.contractVersion: campo esplicito per tracciare la versione
+  - I validatori controllano le versioni supportate
+  - Nuove versioni possono essere aggiunte senza rompere le precedenti
+
+4. ARCHITETTURA
+
+src/schemes/
+├── interfaces/
+│   ├── board-state.interface.ts      # BoardState v2.0
+│   ├── movement-recording.interface.ts # MovementRecording v1.0
+│   └── index.ts
+├── validators/
+│   ├── board-state.validator.ts      # Validazione strutturale
+│   ├── board-state.validator.spec.ts # 10 test
+│   ├── movement-recording.validator.ts
+│   ├── movement-recording.validator.spec.ts # 10 test
+│   └── index.ts
+├── dto/
+│   ├── create-scheme.dto.ts
+│   ├── update-scheme.dto.ts
+│   └── index.ts
+├── schemes.service.ts                # CRUD + validazione
+├── schemes.controller.ts             # REST endpoints
+└── schemes.module.ts
+
+src/teams/
+├── dto/
+│   ├── create-team.dto.ts
+│   ├── create-player.dto.ts
+│   └── index.ts
+├── teams.service.ts
+├── teams.controller.ts
+└── teams.module.ts
+
+5. FLUSSO DI FUNZIONAMENTO
+
+Creazione schema:
+  Client → POST /api/schemes (boardState + recording?) →
+  DTO validation (class-validator) →
+  BoardState structural validation →
+  MovementRecording validation (if present) →
+  Determine type (STATIC/RECORDING) →
+  Prisma create → Response
+
+Aggiornamento schema:
+  Client → PUT /api/schemes/:id →
+  Ownership check →
+  Validazione campi modificati →
+  Update
+
+6. API / ENDPOINT
+
+Schemes:
+  POST   /api/schemes           — Crea schema (auth required)
+  GET    /api/schemes           — Lista schemi utente (?teamId, ?seasonId, ?tags)
+  GET    /api/schemes/count     — Conteggio schemi utente
+  GET    /api/schemes/:id       — Dettaglio schema (con insight)
+  PUT    /api/schemes/:id       — Aggiorna schema
+  DELETE /api/schemes/:id       — Elimina schema
+
+Teams:
+  POST   /api/teams             — Crea team
+  GET    /api/teams             — Lista team utente
+  GET    /api/teams/:id         — Dettaglio team (con players e members)
+  POST   /api/teams/:id/players — Aggiungi giocatore
+  DELETE /api/teams/:id/players/:playerId — Rimuovi giocatore (soft delete)
+  DELETE /api/teams/:id         — Elimina team
+
+7. MODELLO DATI
+
+Tabelle principali:
+  - users (già da MS1)
+  - teams (id, name, owner_id)
+  - team_members (user_id, team_id, role)
+  - team_players (team_id, name, number, position, active)
+  - seasons (name, user_id, team_id, start_date, end_date)
+  - schemes (user_id, team_id, name, type, board_state, recording,
+             snapshot_key, tags, contract_version)
+  - scheme_insights (scheme_id, description, tags, movement_metrics,
+                     embedding vector(768), model_name, token_usage)
+
+Relazioni:
+  - User 1:N Team (owner)
+  - User N:M Team (via team_members)
+  - Team 1:N TeamPlayer
+  - Team 1:N Scheme
+  - User 1:N Scheme
+  - Season 1:N Scheme
+  - Scheme 1:1 SchemeInsight
+
+8. FILE PRINCIPALI
+
+- prisma/schema.prisma — schema completo DB
+- src/schemes/interfaces/board-state.interface.ts — contratto BoardState
+- src/schemes/interfaces/movement-recording.interface.ts — contratto Recording
+- src/schemes/validators/board-state.validator.ts — validazione
+- src/schemes/validators/movement-recording.validator.ts — validazione
+- src/schemes/schemes.service.ts — business logic
+- src/teams/teams.service.ts — gestione team
+
+9. TEST E VERIFICHE
+
+Test unitari (25 totali, tutti passati):
+  - AuthService: 5 test ✓
+  - validateBoardState: 10 test ✓
+    - valid boardState ✓
+    - null input ✓
+    - missing version ✓
+    - invalid version ✓
+    - x > 1 ✓
+    - y < 0 ✓
+    - invalid team ✓
+    - number > 99 ✓
+    - rotation > 360 ✓
+    - invalid path points ✓
+    - valid paths ✓
+  - validateMovementRecording: 10 test ✓
+    - valid recording ✓
+    - null input ✓
+    - invalid version ✓
+    - zero duration ✓
+    - negative duration ✓
+    - non-increasing timestamps ✓
+    - timestamp exceeding duration ✓
+    - coords out of range ✓
+    - invalid rotation ✓
+
+Compilazione:
+  - tsc --noEmit: 0 errori ✓
+  - npm run build: successo ✓
+
+10. COME UTILIZZARE LA FUNZIONALITÀ
+
+Creare uno schema statico:
+  POST /api/schemes
+  Authorization: Bearer <token>
+  {
+    "name": "4-0 offensivo",
+    "boardState": {
+      "version": "2.0",
+      "players": [
+        {"id": "p1", "team": "A", "number": 1, "x": 0.5, "y": 0.9, "rotation": 0},
+        {"id": "p2", "team": "A", "number": 2, "x": 0.2, "y": 0.6, "rotation": 0}
+      ],
+      "paths": []
+    },
+    "tags": ["offensivo", "4-0"]
+  }
+
+Creare uno schema con registrazione:
+  POST /api/schemes
+  {
+    "name": "Rotazione base",
+    "boardState": { ... },
+    "recording": {
+      "version": "1.0",
+      "duration": 5000,
+      "initialState": [{"playerId": "p1", "x": 0.2, "y": 0.5, "rotation": 0}],
+      "keyframes": [
+        {"timestamp": 2000, "players": [{"playerId": "p1", "x": 0.5, "y": 0.3, "rotation": 90}]}
+      ]
+    }
+  }
+
+11. DECISIONI TECNICHE
+
+- BoardState come Json in Prisma: la struttura è validata a livello
+  applicativo (non DB constraint), permettendo flessibilità ed evoluzione.
+- Coordinate normalizzate 0-1: indipendenti dalla risoluzione del device,
+  permettono rendering su qualsiasi dimensione di schermo.
+- Validazione separata dai DTO: i DTO (class-validator) verificano la
+  struttura esterna, i validator custom verificano la semantica interna
+  del boardState/recording.
+- SchemeInsight con Unsupported("vector(768)"): Prisma non gestisce
+  nativamente pgvector, usiamo Unsupported per dichiararlo nello schema
+  senza generare metodi Prisma — le query vector saranno raw SQL.
+- TeamPlayer soft delete (active=false): preserva storico schemi associati.
+- Ownership check nel service, non nel guard: permette logica più fine
+  (es. team members possono leggere ma non modificare).
+
+12. LIMITAZIONI NOTE
+
+- SchemeInsight.embedding usa Unsupported: le operazioni su pgvector
+  richiederanno query raw ($queryRaw) nel Macrostep 7.
+- Non c'è ancora un endpoint per la ricerca semantica (verrà in MS7).
+- Il campo snapshotKey non è ancora popolato (verrà in MS3 con la lavagna).
+- I tag sugli schemi non hanno autocomplete/suggerimenti lato server.
+
+13. PROSSIMO MACROSTEP
+
+Macrostep 3 — Lavagna tattica Futsal:
+- Campo futsal con coordinate normalizzate
+- Pedine con drag, rotazione, selezione
+- Disegno (linee, frecce, freehand, undo)
+- Performance (repaint mirato, layer separati)
+- Salvataggio schema (Flutter → BoardState → API → PostgreSQL)
+- Snapshot PNG → MinIO

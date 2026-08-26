@@ -1,0 +1,136 @@
+MATCHCOACH-AI
+DOCUMENTAZIONE FUNZIONALE
+
+Macrostep: 00 - Baseline Progetto
+
+STATO
+COMPLETATO
+
+1. OBIETTIVO
+
+Analizzare il repository esistente, comprendere lo stato attuale del progetto
+e creare un punto di partenza riproducibile per l'implementazione.
+
+2. FUNZIONALITÀ IMPLEMENTATE
+
+- Inizializzazione repository Git
+- Struttura monorepo con directory dedicate
+- Documentazione architetturale di base (README.md)
+- File .gitignore configurato per Flutter + NestJS + Docker
+
+3. MODULI IMPLEMENTATI
+
+Modulo 0.1 — Analisi repository
+  Il repository è stato creato da zero (directory vuota).
+  Non esiste codice preesistente da analizzare in questa directory.
+  Il documento di riferimento cita un repository precedente
+  (LucaPiantadosi27/MatchCoach-AI) da cui portare pattern architetturali,
+  ma non è presente nel workspace corrente.
+
+  Risultato analisi:
+  - Frontend: nessuno (da creare — Flutter)
+  - Backend: nessuno (da creare — NestJS)
+  - Database: nessuno (da creare — PostgreSQL + Prisma + pgvector)
+  - AI: nessuno (da integrare — Gemini via backend proxy)
+  - Lavagna tattica: nessuna (da creare)
+  - Registrazione/Playback: nessuno (da creare)
+  - Autenticazione: nessuna (da creare)
+  - Storage: nessuno (da creare — MinIO)
+
+Modulo 0.2 — Inventario funzionalità esistenti
+  Non applicabile: il progetto parte da zero.
+  Nessuna funzionalità preesistente da mappare.
+
+Modulo 0.3 — Verifica build
+  Non applicabile: nessun codice compilabile ancora presente.
+  La verifica build verrà effettuata al completamento del Macrostep 1
+  (backend NestJS) e Macrostep 3 (Flutter).
+
+Modulo 0.4 — Baseline
+  Creato punto di partenza riproducibile:
+  - Repository Git inizializzato
+  - Struttura monorepo definita
+  - Documentazione di progetto iniziale
+
+4. ARCHITETTURA
+
+Struttura monorepo:
+
+/home/luca/Scrivania/MatchCoach2.0/
+├── apps/
+│   ├── mobile/          # Flutter app (mobile-first)
+│   ├── api/             # NestJS backend
+│   └── worker/          # BullMQ worker
+├── infra/               # Docker, K8s, CI/CD config
+├── documentazione funzionale/
+├── .gitignore
+└── README.md
+
+Architettura target (da implementare nei macrostep successivi):
+- Flutter (client) → NestJS API → PostgreSQL/MinIO/Redis
+- NestJS API → Gemini (proxy sicuro, chiave mai nel client)
+- Worker BullMQ → Movement Analysis Engine → Gemini
+- pgvector per ricerca semantica sugli schemi
+
+5. FLUSSO DI FUNZIONAMENTO
+
+Non ancora implementato. Il flusso target è documentato nel README.md
+e nel documento architetturale di riferimento.
+
+6. API / ENDPOINT
+
+Nessun endpoint ancora implementato.
+
+7. MODELLO DATI
+
+Non ancora definito. Contratti comuni pianificati:
+- BoardState (v2): version, players[], paths[], meta
+- MovementRecording (v1): initialState, keyframes[], timestamps
+
+8. FILE PRINCIPALI
+
+- /README.md — documentazione progetto
+- /.gitignore — esclusioni Git
+- /apps/mobile/ — placeholder Flutter app
+- /apps/api/ — placeholder NestJS backend
+- /apps/worker/ — placeholder BullMQ worker
+- /infra/ — placeholder infrastruttura
+
+9. TEST E VERIFICHE
+
+Non applicabile in questo macrostep (nessun codice eseguibile).
+Verifica: la struttura directory è stata creata correttamente.
+
+10. COME UTILIZZARE LA FUNZIONALITÀ
+
+Clonare il repository e procedere con il Macrostep 1 per iniziare
+l'implementazione del backend.
+
+11. DECISIONI TECNICHE
+
+- Monorepo: scelto per semplicità di gestione da sviluppatore singolo,
+  condivisione configurazioni, e visibilità completa del progetto.
+- Struttura apps/mobile, apps/api, apps/worker: separa chiaramente
+  i concern e permette containerizzazione indipendente.
+- Directory infra/ dedicata: per Docker Compose, Helm charts, CI/CD.
+- Progetto nuovo (non fork): il vecchio repository viene usato solo
+  come riferimento per pattern già validati (es. performance lavagna).
+
+12. LIMITAZIONI NOTE
+
+- Non è possibile verificare la build perché non c'è ancora codice.
+- Il vecchio repository (LucaPiantadosi27/MatchCoach-AI) non è presente
+  nel workspace; i pattern verranno portati manualmente nei macrostep
+  successivi basandosi sulla documentazione.
+- Nessun test automatico ancora configurato.
+
+13. PROSSIMO MACROSTEP
+
+Macrostep 1 — Fondamenta backend e infrastruttura:
+- NestJS project setup
+- Prisma/PostgreSQL connection
+- Autenticazione (JWT + refresh token)
+- MinIO storage
+- Redis/BullMQ
+- Docker Compose per sviluppo locale
+- CI/CD pipeline iniziale

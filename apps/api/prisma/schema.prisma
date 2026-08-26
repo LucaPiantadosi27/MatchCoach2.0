@@ -1,0 +1,162 @@
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../node_modules/.prisma/client"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [vector]
+}
+
+// ─── ENUMS ───────────────────────────────────────────────
+
+enum UserRole {
+  FREE
+  PREMIUM
+  ADMIN
+}
+
+enum SchemeType {
+  STATIC
+  RECORDING
+}
+
+enum TeamSide {
+  A
+  B
+}
+
+// ─── USER ────────────────────────────────────────────────
+
+model User {
+  id             String   @id @default(uuid())
+  email          String   @unique
+  passwordHash   String   @map("password_hash")
+  firstName      String?  @map("first_name")
+  lastName       String?  @map("last_name")
+  role           UserRole @default(FREE)
+  refreshToken   String?  @map("refresh_token")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  teams          TeamMember[]
+  ownedTeams     Team[]
+  schemes        Scheme[]
+  seasons        Season[]
+
+  @@map("users")
+}
+
+// ─── TEAM ────────────────────────────────────────────────
+
+model Team {
+  id          String   @id @default(uuid())
+  name        String
+  ownerId     String   @map("owner_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  owner       User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  members     TeamMember[]
+  players     TeamPlayer[]
+  schemes     Scheme[]
+  seasons     Season[]
+
+  @@map("teams")
+}
+
+model TeamMember {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  teamId    String   @map("team_id")
+  role      String   @default("coach")
+  joinedAt  DateTime @default(now()) @map("joined_at")
+
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team      Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, teamId])
+  @@map("team_members")
+}
+
+model TeamPlayer {
+  id        String   @id @default(uuid())
+  teamId    String   @map("team_id")
+  name      String
+  number    Int
+  position  String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  team      Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, number])
+  @@map("team_players")
+}
+
+// ─── SEASON ──────────────────────────────────────────────
+
+model Season {
+  id        String   @id @default(uuid())
+  name      String
+  userId    String   @map("user_id")
+  teamId    String?  @map("team_id")
+  startDate DateTime @map("start_date")
+  endDate   DateTime @map("end_date")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team      Team?   @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  schemes   Scheme[]
+
+  @@map("seasons")
+}
+
+// ─── SCHEME ──────────────────────────────────────────────
+
+model Scheme {
+  id              String     @id @default(uuid())
+  userId          String     @map("user_id")
+  teamId          String?    @map("team_id")
+  seasonId        String?    @map("season_id")
+  name            String
+  description     String?
+  type            SchemeType @default(STATIC)
+  boardState      Json       @map("board_state")
+  recording       Json?      @map("recording")
+  snapshotKey     String?    @map("snapshot_key")
+  tags            String[]   @default([])
+  contractVersion String     @default("2.0") @map("contract_version")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team            Team?         @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  season          Season?       @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  insight         SchemeInsight?
+
+  @@index([userId])
+  @@index([teamId])
+  @@index([tags])
+  @@map("schemes")
+}
+
+// ─── SCHEME INSIGHT (1:1 con Scheme) ─────────────────────
+
+model SchemeInsight {
+  id              String   @id @default(uuid())
+  schemeId        String   @unique @map("scheme_id")
+  description     String
+  tags            String[] @default([])
+  movementMetrics Json?    @map("movement_metrics")
+  embedding       Unsupported("vector(768)")?
+  modelName       String?  @map("model_name")
+  tokenUsage      Int?     @map("token_usage")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  scheme          Scheme @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+
+  @@map("scheme_insights")
+}

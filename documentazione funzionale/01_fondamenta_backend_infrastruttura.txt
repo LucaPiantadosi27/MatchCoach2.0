@@ -1,0 +1,255 @@
+MATCHCOACH-AI
+DOCUMENTAZIONE FUNZIONALE
+
+Macrostep: 01 - Fondamenta Backend e Infrastruttura
+
+STATO
+COMPLETATO
+
+1. OBIETTIVO
+
+Creare le fondamenta del backend: progetto NestJS con autenticazione JWT,
+integrazione Prisma/PostgreSQL, storage MinIO, code BullMQ/Redis,
+containerizzazione Docker e pipeline CI/CD iniziale.
+
+2. FUNZIONALITÀ IMPLEMENTATE
+
+- Backend NestJS con struttura modulare
+- Autenticazione completa (register, login, refresh token, logout)
+- Password hashing con bcrypt (12 rounds)
+- Autorizzazione basata su ruoli (FREE, PREMIUM, ADMIN)
+- Global exception filter con logging
+- Validation pipe con whitelist e transform
+- Health check endpoint
+- Integrazione MinIO per object storage (video, snapshot, avatar)
+- Code BullMQ (video-analysis, scheme-insight)
+- Docker Compose per sviluppo locale (PostgreSQL + pgvector, Redis, MinIO)
+- CI/CD GitHub Actions (lint, build, test)
+- Helmet per security headers
+- CORS configurato
+
+3. MODULI IMPLEMENTATI
+
+Modulo 1.1 — Backend NestJS
+  - Progetto NestJS con TypeScript strict
+  - Struttura modulare: config, prisma, auth, health, storage, queue
+  - Global prefix /api
+  - Validation pipe globale
+  - Exception filter globale
+  - Helmet middleware
+
+Modulo 1.2 — Prisma/PostgreSQL
+  - Prisma 7 con prisma.config.ts
+  - Schema iniziale con modello User
+  - pgvector extension abilitata
+  - PrismaService globale con lifecycle hooks
+  - Seed script per dati di sviluppo
+
+Modulo 1.3 — Autenticazione
+  - POST /api/auth/register — registrazione utente
+  - POST /api/auth/login — login con email/password
+  - POST /api/auth/refresh — refresh token (Bearer refresh token)
+  - POST /api/auth/logout — invalidazione refresh token
+  - JWT strategy (access token 15min)
+  - JWT refresh strategy (refresh token 7 giorni)
+  - Refresh token hashato in DB (bcrypt)
+  - Ruoli: FREE (default), PREMIUM, ADMIN
+  - RolesGuard con decorator @Roles()
+  - CurrentUser decorator per estrarre utente dal request
+
+Modulo 1.4 — Storage (MinIO)
+  - StorageService globale
+  - Auto-creazione bucket all'avvio (videos, snapshots, avatars)
+  - Presigned URL per upload diretto dal client
+  - Presigned URL per download
+  - Upload buffer diretto
+  - Delete object
+
+Modulo 1.5 — Redis/BullMQ
+  - QueueModule con connessione Redis configurabile
+  - Code registrate: video-analysis, scheme-insight
+  - Pronto per i worker dei macrostep successivi
+
+Modulo 1.6 — Docker
+  - docker-compose.yml con:
+    - PostgreSQL 16 + pgvector
+    - Redis 7 Alpine
+    - MinIO (porta 9000 API, 9001 console)
+  - Volumi persistenti per tutti i servizi
+  - Health check per ogni servizio
+  - Dockerfile multi-stage per API (builder + runner)
+
+Modulo 1.7 — CI/CD
+  - GitHub Actions workflow (.github/workflows/ci.yml)
+  - Pipeline: checkout → setup Node 20 → npm ci → prisma generate → lint → build → test
+  - PostgreSQL service container per i test
+
+4. ARCHITETTURA
+
+apps/api/
+├── prisma/
+│   ├── schema.prisma          # Schema DB
+│   └── seed.ts                # Dati sviluppo
+├── prisma.config.ts           # Config Prisma 7
+├── src/
+│   ├── main.ts                # Bootstrap con helmet, cors, pipes, filters
+│   ├── app.module.ts          # Root module
+│   ├── config/
+│   │   └── config.module.ts   # ConfigModule globale
+│   ├── prisma/
+│   │   ├── prisma.service.ts  # PrismaClient wrapper
+│   │   └── prisma.module.ts   # Global module
+│   ├── auth/
+│   │   ├── auth.module.ts
+│   │   ├── auth.service.ts    # Logica register/login/refresh/logout
+│   │   ├── auth.controller.ts # Endpoint REST
+│   │   ├── auth.service.spec.ts # Unit test
+│   │   ├── dto/
+│   │   │   ├── register.dto.ts
+│   │   │   ├── login.dto.ts
+│   │   │   └── index.ts
+│   │   └── strategies/
+│   │       ├── jwt.strategy.ts
+│   │       └── jwt-refresh.strategy.ts
+│   ├── health/
+│   │   ├── health.module.ts
+│   │   └── health.controller.ts
+│   ├── storage/
+│   │   ├── storage.service.ts
+│   │   └── storage.module.ts
+│   ├── queue/
+│   │   └── queue.module.ts
+│   └── common/
+│       ├── decorators/
+│       │   ├── roles.decorator.ts
+│       │   └── current-user.decorator.ts
+│       ├── guards/
+│       │   ├── jwt-auth.guard.ts
+│       │   ├── jwt-refresh.guard.ts
+│       │   └── roles.guard.ts
+│       └── filters/
+│           └── http-exception.filter.ts
+├── Dockerfile
+├── .dockerignore
+├── .env
+└── .env.example
+
+5. FLUSSO DI FUNZIONAMENTO
+
+Registrazione:
+  Client → POST /api/auth/register (email, password) →
+  Validazione → Hash password → Crea user → Genera JWT pair →
+  Hash refresh token → Salva in DB → Ritorna tokens
+
+Login:
+  Client → POST /api/auth/login (email, password) →
+  Trova user → Verifica password → Genera JWT pair →
+  Aggiorna refresh token → Ritorna tokens
+
+Refresh:
+  Client → POST /api/auth/refresh (Bearer refresh_token) →
+  Valida JWT refresh → Estrai userId → Verifica hash in DB →
+  Genera nuovi tokens → Aggiorna refresh token
+
+Storage upload:
+  Client → Richiede presigned URL → Upload diretto a MinIO
+
+6. API / ENDPOINT
+
+GET  /api/health           — Health check (no auth)
+POST /api/auth/register    — Registrazione (body: email, password, firstName?, lastName?)
+POST /api/auth/login       — Login (body: email, password)
+POST /api/auth/refresh     — Refresh token (header: Bearer <refresh_token>)
+POST /api/auth/logout      — Logout (header: Bearer <access_token>)
+
+7. MODELLO DATI
+
+User:
+  - id: UUID (PK)
+  - email: string (unique)
+  - password_hash: string
+  - first_name: string?
+  - last_name: string?
+  - role: enum (FREE, PREMIUM, ADMIN)
+  - refresh_token: string? (hashed)
+  - created_at: timestamp
+  - updated_at: timestamp
+
+8. FILE PRINCIPALI
+
+- apps/api/src/main.ts — entry point con configurazione globale
+- apps/api/src/auth/auth.service.ts — logica autenticazione
+- apps/api/src/prisma/prisma.service.ts — connessione DB
+- apps/api/src/storage/storage.service.ts — integrazione MinIO
+- apps/api/prisma/schema.prisma — schema database
+- docker-compose.yml — servizi di sviluppo
+
+9. TEST E VERIFICHE
+
+Test eseguiti:
+  - AuthService.register: crea utente e ritorna tokens ✓
+  - AuthService.register: ConflictException se email esiste ✓
+  - AuthService.login: ritorna tokens per credenziali valide ✓
+  - AuthService.login: UnauthorizedException per email errata ✓
+  - AuthService.login: UnauthorizedException per password errata ✓
+
+Compilazione:
+  - tsc --noEmit: 0 errori ✓
+  - npm run build (nest build): successo ✓
+
+Per testare con Docker:
+  1. docker compose up -d
+  2. npm run prisma:migrate
+  3. npm run prisma:seed
+  4. npm run start:dev
+  5. curl http://localhost:3000/api/health
+
+10. COME UTILIZZARE LA FUNZIONALITÀ
+
+Prerequisiti:
+  - Node.js 20+
+  - Docker e Docker Compose per i servizi
+
+Avvio sviluppo:
+  1. cd apps/api
+  2. cp .env.example .env (editare se necessario)
+  3. docker compose up -d (dalla root del progetto)
+  4. npm run prisma:migrate
+  5. npm run prisma:seed
+  6. npm run start:dev
+
+L'API sarà disponibile su http://localhost:3000/api
+
+11. DECISIONI TECNICHE
+
+- Prisma 7: versione più recente disponibile, richiede prisma.config.ts
+  separato per la configurazione della datasource URL.
+- CommonJS module: scelto per compatibilità con l'ecosistema NestJS,
+  che non supporta ancora pienamente ESM con nodenext.
+- bcrypt 12 rounds: compromesso sicurezza/performance per dev singolo.
+- Refresh token hashato in DB: impedisce riuso anche in caso di leak.
+- pgvector abilitato da subito: necessario per Macrostep 7 (embedding).
+- Docker pgvector/pgvector:pg16: immagine ufficiale con estensione pre-installata.
+- Global prefix /api: separazione chiara tra API e eventuali asset statici.
+- StorageService globale: riusabile da qualsiasi modulo senza reimportare.
+
+12. LIMITAZIONI NOTE
+
+- Docker non era in esecuzione durante lo sviluppo: la migrazione Prisma
+  e il seed non sono stati eseguiti. Vanno eseguiti manualmente al primo avvio.
+- Il lint dell'IDE mostra errori phantom (stale TS server) che non
+  corrispondono alla reale compilazione (tsc --noEmit passa pulito).
+- Il baseUrl nel tsconfig genera un deprecation warning per TypeScript 7
+  futuro, ma non impatta la compilazione attuale.
+- Il worker (apps/worker) è solo placeholder, verrà implementato nel
+  Macrostep 7 quando la pipeline di analisi sarà pronta.
+
+13. PROSSIMO MACROSTEP
+
+Macrostep 2 — Modello dati MatchCoach-AI:
+- User/Team con relazioni
+- Scheme entity unificata (static + recording)
+- BoardState formale con versioning
+- MovementRecording con keyframes
+- Validazione server-side
+- Versioning del contratto
