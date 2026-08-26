@@ -5,6 +5,7 @@ import '../models/board_state.dart';
 import '../painters/futsal_court_painter.dart';
 import '../providers/board_provider.dart';
 import '../providers/recording_provider.dart';
+import 'tactical_chat_screen.dart';
 
 class TacticalBoardScreen extends ConsumerStatefulWidget {
   const TacticalBoardScreen({super.key});
@@ -111,6 +112,16 @@ class _TacticalBoardScreenState extends ConsumerState<TacticalBoardScreen> {
       appBar: AppBar(
         title: const Text('MatchCoach — Lavagna tattica'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.chat_bubble_outline),
+            tooltip: 'Assistente tattico',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const TacticalChatScreen(),
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.save),
             tooltip: 'Salva schema',

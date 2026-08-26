@@ -1,0 +1,174 @@
+MATCHCOACH-AI
+DOCUMENTAZIONE FUNZIONALE
+
+Macrostep: 10 - Tactical chat
+
+STATO
+COMPLETATO
+
+1. OBIETTIVO
+
+Aggiungere un'interfaccia mobile di chat tattica che permetta
+all'allenatore di fare domande testuali all'assistente AI, con contesto
+opzionale di schema e partita, e pulsante per input vocale (placeholder).
+
+2. FUNZIONALITÀ IMPLEMENTATE
+
+- Modello `ChatMessage` e `ChatSession` con serializzazione JSON
+- `AssistantClient` con Dio per chiamare `POST /api/assistant/ask`
+- `ChatProvider` (Riverpod) per gestire lo stato della conversazione
+- `TacticalChatScreen` con:
+  - lista messaggi user/assistant
+  - input testuale
+  - pulsante invio
+  - pulsante microfono (placeholder)
+  - indicatori di contesto (schema e partita)
+- Navigazione dalla `TacticalBoardScreen` via icona chat in AppBar
+- Test unitari del `ChatProvider`
+
+3. MODULI IMPLEMENTATI
+
+Modulo 10.1 — lib/models/chat_message.dart
+  - `ChatMessage` (user, assistant, system)
+  - `ChatSession`
+  - `toJson` / `fromJson`
+
+Modulo 10.2 — lib/services/assistant_client.dart
+  - `AssistantClient`
+  - `ask(channel, question, schemeId, matchContext)`
+
+Modulo 10.3 — lib/providers/chat_provider.dart
+  - `assistantClientProvider`
+  - `chatProvider`
+  - `ChatNotifier`
+  - `setContext`, `clear`, `send`
+
+Modulo 10.4 — lib/screens/tactical_chat_screen.dart
+  - `TacticalChatScreen`
+  - `_ContextBar`
+  - `_ChatBubble`
+  - `_ChatInput`
+
+Modulo 10.5 — lib/screens/tactical_board_screen.dart
+  - Action `Icons.chat_bubble_outline` per aprire la chat
+
+4. ARCHITETTURA
+
+apps/mobile/lib/
+├── models/
+│   └── chat_message.dart
+├── services/
+│   └── assistant_client.dart
+├── providers/
+│   └── chat_provider.dart
+├── screens/
+│   ├── tactical_board_screen.dart       # nuova action chat
+│   └── tactical_chat_screen.dart        # nuova schermata
+└── test/
+    └── chat_provider_test.dart
+
+5. FLUSSO DI FUNZIONAMENTO
+
+Aprire chat:
+  TacticalBoardScreen → tap icona chat → TacticalChatScreen
+
+Invio messaggio:
+  Utente scrive → tap invio
+  → ChatProvider aggiunge ChatMessage.user
+  → AssistantClient.post('/assistant/ask')
+  → Backend (AssistantService) elabora
+  → ChatProvider aggiunge ChatMessage.assistant con risposta
+
+Input vocale:
+  Tap microfono → placeholder "Input vocale non ancora implementato"
+
+6. API / ENDPOINT
+
+POST http://localhost:3000/api/assistant/ask
+  Headers:
+    Authorization: Bearer <token>
+    Content-Type: application/json
+  Body:
+    {
+      "channel": "A" | "B",
+      "question": "string",
+      "schemeId?": "string"
+    }
+  Response:
+    {
+      "answer": "string",
+      "sources?": ["scheme:<id>"]
+    }
+
+7. MODELLO DATI
+
+ChatMessage:
+  - id, role (user/assistant/system), text, timestamp, sources?
+
+ChatSession:
+  - id, schemeId?, matchContext?, messages
+
+8. FILE PRINCIPALI
+
+- apps/mobile/lib/models/chat_message.dart
+- apps/mobile/lib/services/assistant_client.dart
+- apps/mobile/lib/providers/chat_provider.dart
+- apps/mobile/lib/screens/tactical_chat_screen.dart
+- apps/mobile/lib/screens/tactical_board_screen.dart
+- apps/mobile/test/chat_provider_test.dart
+
+9. TEST E VERIFICHE
+
+Mobile:
+  - flutter test: 7 passed
+
+Backend:
+  - npm run build: successo (precedentemente verificato MS09)
+  - npm test: 36 passed (precedentemente verificato MS09)
+
+I test unitari coprono:
+  - aggiunta messaggio user + risposta assistant
+  - rifiuto di messaggi vuoti
+  - override del client nel test
+
+10. COME UTILIZZARE
+
+Avviare backend:
+  cd apps/api && npm run start:dev
+
+Avviare app:
+  cd apps/mobile && flutter run
+
+Navigare:
+  1. Schermata lavagna
+  2. Tap icona chat in alto a destra
+  3. Scrivi domanda e invia
+  4. Il contesto schema viene attivato se `schemeId` è impostato
+
+11. DECISIONI TECNICHE
+
+- Riverpod per stato chat: coerente con il resto dell'app
+- `AssistantClient` astratto e overridable: facilita test
+- Schermata a sè stante: mantiene separazione di responsabilità
+- Pulsante microfono placeholder: input vocale richiede package e
+  permission futuri (MS14)
+- Contesto match: stringa libera per allenatore, non ancora legata a
+  modello dati partita
+- Base URL `localhost:3000` per dev: in produzione sarà sostituito
+  da variabile d'ambiente
+
+12. LIMITAZIONI NOTE
+
+- Input vocale non implementato
+- Nessun salvataggio storico delle chat
+- Nessuna persistenza locale dei messaggi
+- Base URL hardcoded per dev
+- Non è integrato un vero flusso di autenticazione JWT lato mobile
+- Nessuna gestione di connessione assente o timeout specifico UI
+
+13. PROSSIMO MACROSTEP
+
+Macrostep 11 — Video analysis pipeline
+- Upload video
+- Estrazione frame
+- Analisi movimento su video
