@@ -1,0 +1,168 @@
+MATCHCOACH-AI
+DOCUMENTAZIONE FUNZIONALE
+
+Macrostep: 04 - Recording & Playback
+
+STATO
+COMPLETATO
+
+1. OBIETTIVO
+
+Aggiungere la capacità di registrare e riprodurre i movimenti delle pedine
+sulla lavagna tattica, generando un MovementRecording v1.0 conforme al
+contratto backend. Il sistema deve supportare keyframe, interpolazione
+temporale, timeline con play/pausa/seek e test di verifica.
+
+2. FUNZIONALITÀ IMPLEMENTATE
+
+- Modello MovementRecording v1.0 in Flutter
+- Registrazione automatica dei keyframe ogni 500 ms durante il movimento
+- Playback con interpolazione lineare (posizione e rotazione) a 20 FPS
+- Controlli REC / STOP / PLAY / PAUSA / RESET
+- Slider per lo seek preciso nella timeline
+- Visualizzazione tempo corrente / durata
+- Interpolazione del percorso più breve sull'angolo di rotazione
+- Test unitari sull'interpolazione tra keyframe
+
+3. MODULI IMPLEMENTATI
+
+Modulo 4.1 — Modello dati Recording
+  - MovementRecording (version, duration, initialState, keyframes)
+  - PlayerKeyframe (playerId, x, y, rotation)
+  - Keyframe (timestamp, players)
+  - toJson / fromJson compatibili con il contratto backend v1.0
+  - interpolateAt(BoardState, time): restituisce un BoardState interpolato
+
+Modulo 4.2 — Recording Provider
+  - RecordingState con recording, isRecording, isPlaying, recordingTime, playbackTime
+  - RecordingNotifier gestisce:
+    * startRecording: cattura initialState dal board corrente
+    * Timer di registrazione con cattura keyframe ogni 500 ms
+    * stopRecording: fissa la durata e ferma il timer
+    * play/pause/reset: controlli di riproduzione a 50 ms/frame
+    * seek: spostamento nella timeline
+    * currentInterpolatedBoard: board interpolato per il rendering
+
+Modulo 4.3 — UI di controllo
+  - Pulsanti REC, STOP, PLAY/PAUSA, RESET
+  - Label tempo mm:ss.cc
+  - Slider di seek orizzontale
+  - Durante il playback il disegno e l'editing sono disabilitati
+  - Durante la registrazione il tool viene forzato a "selezione"
+
+4. ARCHITETTURA
+
+apps/mobile/lib/
+├── models/
+│   ├── board_state.dart              # BoardState v2.0 (già MS3)
+│   └── recording.dart                # MovementRecording v1.0
+├── providers/
+│   ├── board_provider.dart           # Stato lavagna (MS3)
+│   └── recording_provider.dart       # Stato registrazione/playback
+├── screens/
+│   └── tactical_board_screen.dart    # UI con controlli recording
+├── painters/
+│   └── futsal_court_painter.dart     # Rendering board interpolata
+└── test/
+    ├── widget_test.dart              # Smoke test lavagna
+    └── recording_test.dart           # Test interpolazione
+
+5. FLUSSO DI FUNZIONAMENTO
+
+Registrazione:
+  1. L'utente posiziona le pedine nello stato iniziale
+  2. PREME "REC" → initialState viene catturato, partono i timer
+  3. L'utente muove le pedine per lo schema
+  4. Ogni 500 ms viene salvato un Keyframe con le posizioni correnti
+  5. PREME "STOP" → durata fissata, recording pronto
+
+Playback:
+  1. PREME "PLAY" → playbackTime avanza a 20 FPS
+  2. RecordingProvider interpola le posizioni tra i keyframe
+  3. TacticalBoardScreen mostra il BoardState interpolato
+  4. Lo slider permette lo seek in qualsiasi momento
+  5. Il playback si ferma automaticamente al termine
+
+6. API / ENDPOINT
+
+Nessun nuovo endpoint backend in questo macrostep.
+Il backend (MS2) accetta già un campo `recording` nello Scheme DTO.
+L'invio verrà collegato in Macrostep 9 con autenticazione e API service.
+
+7. MODELLO DATI
+
+MovementRecording v1.0:
+  - version: "1.0"
+  - duration: int (ms)
+  - initialState: List<PlayerKeyframe>
+  - keyframes: List<Keyframe>
+
+PlayerKeyframe:
+  - playerId: String
+  - x, y: double (0.0-1.0)
+  - rotation: double (0-360)
+
+Keyframe:
+  - timestamp: int (ms, crescente)
+  - players: List<PlayerKeyframe>
+
+8. FILE PRINCIPALI
+
+- apps/mobile/lib/models/recording.dart
+- apps/mobile/lib/providers/recording_provider.dart
+- apps/mobile/lib/screens/tactical_board_screen.dart
+- apps/mobile/test/recording_test.dart
+- apps/mobile/lib/painters/futsal_court_painter.dart (riutilizzato)
+- apps/mobile/lib/models/board_state.dart (riutilizzato)
+
+9. TEST E VERIFICHE
+
+Flutter:
+  - flutter analyze: 0 issues
+  - flutter test: 2 test passati
+    * Tactical board renders
+    * MovementRecording interpolation (4 assertion)
+
+Backend (MS2):
+  - npm run build: successo
+  - npm test: 25 passed
+
+10. COME UTILIZZARE
+
+Registrare uno schema di movimento:
+  1. Apri l'app e posiziona le pedine
+  2. Tocca "REC" (diventa rosso)
+  3. Trascina le pedine lungo il percorso desiderato
+  4. Tocca "STOP"
+
+Riproduzione:
+  1. Tocca "PLAY" (triangolo)
+  2. Usa il cursore per saltare avanti/indietro
+  3. Tocca "RESET" per tornare all'inizio
+
+11. DECISIONI TECNICHE
+
+- Interpolazione lineare: sufficiente per movimenti futsal a breve durata
+- Rotazione con percorso breve: evita rotazioni > 180° durante l'interpolazione
+- Keyframe ogni 500 ms durante recording: compromesso tra dettaglio e peso
+- Playback a 50 ms: fluidezza sufficiente su mobile senza caricare la CPU
+- BoardState interpolato calcolato solo a livello di rendering: non modifica
+  lo stato di editing sottostante, permettendo di fermare il playback e
+  continuare a modificare
+- StateNotifier con Ref: accesso al boardProvider per catturare i frame
+
+12. LIMITAZIONI NOTE
+
+- Il recording non è ancora salvato sul backend (verrà con MS9)
+- Durante la registrazione i disegni non vengono catturati (solo posizioni)
+- Non è possibile editare i singoli keyframe manualmente
+- La registrazione è fissa a intervalli di 500 ms (non adattiva)
+- Il playback non ha audio né telecamera di campo
+
+13. PROSSIMO MACROSTEP
+
+Macrostep 5 — Movement Analysis Engine:
+- Normalizzazione e calcolo vettoriale dei movimenti
+- Analisi delle zone di campo
+- Distanze, relazioni geometriche e simmetria
+- Generazione di MovementAnalysisReport deterministico

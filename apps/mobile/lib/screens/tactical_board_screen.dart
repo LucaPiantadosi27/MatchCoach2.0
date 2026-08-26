@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/board_state.dart';
 import '../painters/futsal_court_painter.dart';
 import '../providers/board_provider.dart';
+import '../providers/recording_provider.dart';
 
 class TacticalBoardScreen extends ConsumerStatefulWidget {
   const TacticalBoardScreen({super.key});
@@ -38,7 +39,10 @@ class _TacticalBoardScreenState extends ConsumerState<TacticalBoardScreen> {
   }
 
   void _onPanStart(DragStartDetails details, Size size) {
-    final tool = ref.read(drawToolProvider);
+    final rec = ref.read(recordingProvider);
+    if (rec.isPlaying) return;
+
+    final tool = rec.isRecording ? 'select' : ref.read(drawToolProvider);
     final norm = _toNorm(details.localPosition, size);
 
     if (tool == 'select') {
@@ -56,6 +60,9 @@ class _TacticalBoardScreenState extends ConsumerState<TacticalBoardScreen> {
   }
 
   void _onPanUpdate(DragUpdateDetails details, Size size) {
+    final rec = ref.read(recordingProvider);
+    if (rec.isPlaying) return;
+
     final norm = _toNorm(details.localPosition, size);
 
     if (_draggedPlayerId != null) {
@@ -80,11 +87,25 @@ class _TacticalBoardScreenState extends ConsumerState<TacticalBoardScreen> {
     ref.read(boardProvider.notifier).rotatePlayer(id, player.rotation + delta);
   }
 
+  String _formatTime(int ms) {
+    final totalSeconds = ms ~/ 1000;
+    final minutes = totalSeconds ~/ 60;
+    final seconds = totalSeconds % 60;
+    final centi = (ms % 1000) ~/ 10;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}.${centi.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final board = ref.watch(boardProvider);
+    final rec = ref.watch(recordingProvider);
     final tool = ref.watch(drawToolProvider);
     final selectedId = ref.watch(selectedPlayerProvider);
+
+    final isPlaying = rec.isPlaying;
+    final displayed = isPlaying && rec.recording != null
+        ? rec.recording!.interpolateAt(board, rec.playbackTime)
+        : board;
 
     return Scaffold(
       appBar: AppBar(
@@ -93,17 +114,21 @@ class _TacticalBoardScreenState extends ConsumerState<TacticalBoardScreen> {
           IconButton(
             icon: const Icon(Icons.save),
             tooltip: 'Salva schema',
-            onPressed: () => _saveScheme(context, board),
+            onPressed: () => _saveScheme(context, displayed),
           ),
           IconButton(
             icon: const Icon(Icons.undo),
             tooltip: 'Annulla disegno',
-            onPressed: () => ref.read(boardProvider.notifier).undo(),
+            onPressed: rec.isRecording || rec.isPlaying
+                ? null
+                : () => ref.read(boardProvider.notifier).undo(),
           ),
           IconButton(
             icon: const Icon(Icons.clear),
             tooltip: 'Cancella disegni',
-            onPressed: () => ref.read(boardProvider.notifier).clearPaths(),
+            onPressed: rec.isRecording || rec.isPlaying
+                ? null
+                : () => ref.read(boardProvider.notifier).clearPaths(),
           ),
         ],
       ),
@@ -134,8 +159,8 @@ class _TacticalBoardScreenState extends ConsumerState<TacticalBoardScreen> {
                         onPanEnd: _onPanEnd,
                         child: CustomPaint(
                           painter: FutsalCourtPainter(
-                            board,
-                            selectedPlayerId: selectedId,
+                            displayed,
+                            selectedPlayerId: isPlaying ? null : selectedId,
                           ),
                           size: size,
                         ),
@@ -146,13 +171,18 @@ class _TacticalBoardScreenState extends ConsumerState<TacticalBoardScreen> {
               },
             ),
           ),
-          _buildControls(context, tool, selectedId),
+          _buildControls(context, tool, selectedId, rec),
         ],
       ),
     );
   }
 
-  Widget _buildControls(BuildContext context, String tool, String? selectedId) {
+  Widget _buildControls(
+    BuildContext context,
+    String tool,
+    String? selectedId,
+    RecordingState rec,
+  ) {
     final playerSelected = selectedId != null;
     return Container(
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -169,30 +199,38 @@ class _TacticalBoardScreenState extends ConsumerState<TacticalBoardScreen> {
                     icon: Icons.pan_tool,
                     label: 'Seleziona',
                     selected: tool == 'select',
-                    onPressed: () => ref.read(drawToolProvider.notifier).state = 'select',
+                    onPressed: rec.isPlaying
+                        ? null
+                        : () => ref.read(drawToolProvider.notifier).state = 'select',
                   ),
                   _ToolButton(
                     icon: Icons.show_chart,
                     label: 'Linea',
                     selected: tool == 'line',
-                    onPressed: () => ref.read(drawToolProvider.notifier).state = 'line',
+                    onPressed: rec.isPlaying
+                        ? null
+                        : () => ref.read(drawToolProvider.notifier).state = 'line',
                   ),
                   _ToolButton(
                     icon: Icons.arrow_forward,
                     label: 'Freccia',
                     selected: tool == 'arrow',
-                    onPressed: () => ref.read(drawToolProvider.notifier).state = 'arrow',
+                    onPressed: rec.isPlaying
+                        ? null
+                        : () => ref.read(drawToolProvider.notifier).state = 'arrow',
                   ),
                   _ToolButton(
                     icon: Icons.gesture,
                     label: 'Freehand',
                     selected: tool == 'freehand',
-                    onPressed: () => ref.read(drawToolProvider.notifier).state = 'freehand',
+                    onPressed: rec.isPlaying
+                        ? null
+                        : () => ref.read(drawToolProvider.notifier).state = 'freehand',
                   ),
                 ],
               ),
             ),
-            if (playerSelected) ...[
+            if (playerSelected && !rec.isPlaying) ...[
               const SizedBox(height: 8),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -223,21 +261,84 @@ class _TacticalBoardScreenState extends ConsumerState<TacticalBoardScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 FilledButton.icon(
-                  onPressed: () => _addPlayer('A'),
+                  onPressed: rec.isPlaying
+                      ? null
+                      : () => _addPlayer('A'),
                   icon: const Icon(Icons.person_add),
                   label: const Text('A'),
                 ),
                 const SizedBox(width: 8),
                 FilledButton.icon(
-                  onPressed: () => _addPlayer('B'),
+                  onPressed: rec.isPlaying
+                      ? null
+                      : () => _addPlayer('B'),
                   icon: const Icon(Icons.person_add),
                   label: const Text('B'),
                 ),
               ],
             ),
+            const Divider(),
+            _buildRecordingControls(rec),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildRecordingControls(RecordingState rec) {
+    final hasRecording = rec.recording != null;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (!rec.isRecording)
+              FilledButton.tonalIcon(
+                onPressed: hasRecording
+                    ? null
+                    : () => ref.read(recordingProvider.notifier).startRecording(),
+                icon: const Icon(Icons.fiber_manual_record, color: Colors.red),
+                label: const Text('REC'),
+              )
+            else
+              FilledButton.tonalIcon(
+                onPressed: () => ref.read(recordingProvider.notifier).stopRecording(),
+                icon: const Icon(Icons.stop),
+                label: const Text('STOP'),
+              ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: rec.isPlaying ? const Icon(Icons.pause) : const Icon(Icons.play_arrow),
+              tooltip: rec.isPlaying ? 'Pausa' : 'Play',
+              onPressed: hasRecording
+                  ? () => rec.isPlaying
+                      ? ref.read(recordingProvider.notifier).pause()
+                      : ref.read(recordingProvider.notifier).play()
+                  : null,
+            ),
+            IconButton(
+              icon: const Icon(Icons.replay),
+              tooltip: 'Reset',
+              onPressed: hasRecording
+                  ? () => ref.read(recordingProvider.notifier).resetPlayback()
+                  : null,
+            ),
+            if (hasRecording) ...[
+              Text(_formatTime(rec.playbackTime)),
+              const Text(' / '),
+              Text(_formatTime(rec.maxTime)),
+            ],
+          ],
+        ),
+        if (hasRecording)
+          Slider(
+            value: rec.playbackTime.toDouble(),
+            min: 0,
+            max: rec.maxTime.toDouble(),
+            onChanged: (value) => ref.read(recordingProvider.notifier).seek(value.toInt()),
+          ),
+      ],
     );
   }
 
@@ -262,13 +363,13 @@ class _ToolButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool selected;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   const _ToolButton({
     required this.icon,
     required this.label,
     required this.selected,
-    required this.onPressed,
+    this.onPressed,
   });
 
   @override
