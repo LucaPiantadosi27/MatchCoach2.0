@@ -1,0 +1,162 @@
+MATCHCOACH-AI
+DOCUMENTAZIONE FUNZIONALE
+
+Macrostep: 06 - Gemini Tactical Brain
+
+STATO
+COMPLETATO
+
+1. OBIETTIVO
+
+Integrare Google Gemini come cervello tattico del sistema. Dato un
+MovementAnalysisReport prodotto dall'engine deterministico, il servizio
+deve generare un'interpretazione tattica in italiano, tag, confidenza e
+suggerimenti. Il servizio deve funzionare anche senza API key (fallback).
+
+2. FUNZIONALITÀ IMPLEMENTATE
+
+- Contratto TacticalInterpretation v1.0
+- Prompt builder specializzato per il futsal
+- GeminiService con chiamata a `generativelanguage.googleapis.com`
+- Parsing JSON strutturato dalla risposta di Gemini
+- Fallback deterministico quando la chiave API manca o la risposta è invalida
+- Derivazione tag tattici di backup dal report
+- GeminiModule esportabile da NestJS
+- Test unitari per fallback, parsing e fallback su risposta malformata
+
+3. MODULI IMPLEMENTATI
+
+Modulo 6.1 — Contratto TacticalInterpretation
+  - summary (string)
+  - tags (string[])
+  - confidence (0.0-1.0)
+  - suggestedImprovements (string[])
+  - rawResponse (opzionale)
+  - modelName, tokenUsage
+
+Modulo 6.2 — FutsalPromptBuilder
+  - Costruisce un prompt testuale in italiano dal MovementAnalysisReport
+  - Richiede JSON con campi noti
+  - Include metriche per giocatore e per squadra
+
+Modulo 6.3 — GeminiService
+  - Legge GEMINI_API_KEY da ConfigService
+  - Se la chiave è assente: fallback deterministico
+  - Chiama `gemini-1.5-flash` via `fetch` nativo
+  - Pulisce markdown ```json``` e parsa JSON
+  - Fallback su risposta malformata o errore HTTP
+
+Modulo 6.4 — GeminiModule
+  - Modulo NestJS con ConfigModule
+  - Esporta GeminiService
+
+4. ARCHITETTURA
+
+apps/api/src/gemini/
+├── interfaces/
+│   ├── index.ts
+│   └── tactical-interpretation.interface.ts
+├── prompts/
+│   └── futsal-prompt.builder.ts
+├── services/
+│   ├── gemini.service.ts
+│   └── gemini.service.spec.ts
+└── gemini.module.ts
+
+5. FLUSSO DI FUNZIONAMENTO
+
+Input:
+  MovementAnalysisReport v1.0
+
+Elaborazione:
+  1. Il prompt builder trasforma il report in testo italiano
+  2. GeminiService verifica la presenza di GEMINI_API_KEY
+  3. Se assente, restituisce fallback con tag derivati dal report
+  4. Se presente, chiama l'API Gemini con il prompt
+  5. La risposta viene pulita e parsata in JSON
+  6. Se il parsing fallisce, restituisce fallback
+
+Output:
+  TacticalInterpretation v1.0
+
+6. API / ENDPOINT
+
+Nessun endpoint esposto in questo macrostep.
+Il servizio Gemini verrà collegato alla pipeline di analisi in Macrostep 7
+(GeminiService verrà iniettato nello worker/controller di analisi).
+
+7. MODELLO DATI
+
+TacticalInterpretation v1.0:
+  - version: "1.0"
+  - summary: string
+  - tags: string[]
+  - confidence: number
+  - suggestedImprovements: string[]
+  - rawResponse?: string
+  - modelName: string
+  - tokenUsage?: number
+
+Prompt:
+  - Report di movimento completo
+  - Richiesta esplicita di JSON con summary, tags, confidence, suggestedImprovements
+
+8. FILE PRINCIPALI
+
+- apps/api/src/gemini/interfaces/tactical-interpretation.interface.ts
+- apps/api/src/gemini/interfaces/index.ts
+- apps/api/src/gemini/prompts/futsal-prompt.builder.ts
+- apps/api/src/gemini/services/gemini.service.ts
+- apps/api/src/gemini/services/gemini.service.spec.ts
+- apps/api/src/gemini/gemini.module.ts
+- apps/api/.env.example (già presente con GEMINI_API_KEY)
+
+9. TEST E VERIFICHE
+
+Backend:
+  - npm run build: successo
+  - npm test: 31 passed
+    * auth 5 test
+    * board-state validator 10 test
+    * movement-recording validator 10 test
+    * movement analysis 5 test
+    * gemini 3 test (fallback, parse, malformed)
+
+10. COME UTILIZZARE
+
+Configurazione:
+  Inserire la chiave in apps/api/.env:
+    GEMINI_API_KEY="<tua-chiave>"
+
+Uso programmatico:
+  const interpretation = await geminiService.interpret(report);
+
+Senza chiave:
+  Il servizio restituisce un fallback con confidenza 0.4 e tag generici.
+
+11. DECISIONI TECNICHE
+
+- fetch nativo Node 20: evita nuove dipendenze
+- Modello `gemini-1.5-flash`: bilancia costo e velocità
+- Fallback deterministico: il sistema è sempre funzionale, anche senza API key
+- Prompt in italiano: output già pronto per l'app mobile
+- Richiesta JSON esplicita: facilita il parsing e la validazione
+- Configurazione via ConfigService: coerente con il resto del backend
+- No caching: ogni interpretazione è ricalcolata sul report aggiornato
+
+12. LIMITAZIONI NOTE
+
+- La chiave API Gemini non è inclusa nel repository (deve essere in .env)
+- Se la risposta di Gemini non è JSON valido, si perde il contenuto grezzo
+- Nessun retry logico in caso di errore HTTP
+- Nessuna gestione di rate limiting
+- Non viene ancora persistito lo SchemeInsight (Macrostep 7)
+- Il modello è hardcoded su `gemini-1.5-flash`
+
+13. PROSSIMO MACROSTEP
+
+Macrostep 7 — Full analysis pipeline:
+- Worker BullMQ per analisi asincrona
+- Job che orchestrata BoardState → MovementAnalysisEngine → GeminiService
+- Persistenza di SchemeInsight su PostgreSQL con embedding
+- Endpoint POST /api/schemes/:id/analyze
